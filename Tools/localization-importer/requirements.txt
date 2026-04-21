@@ -1,0 +1,3 @@
+# No third-party dependencies.
+# import_from_unity.py uses only the Python 3.10+ standard library
+# (argparse, json, re, pathlib, dataclasses, typing).

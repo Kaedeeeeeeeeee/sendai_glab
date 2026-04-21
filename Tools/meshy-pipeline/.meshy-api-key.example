@@ -1,0 +1,4 @@
+msy-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# Copy this file to `.meshy-api-key` (same directory) and replace the above
+# placeholder with your real Meshy API key from https://www.meshy.ai/api .
+# The real file is listed in .gitignore and MUST NOT be committed.

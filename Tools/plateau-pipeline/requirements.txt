@@ -1,0 +1,19 @@
+# SDG-Lab plateau-pipeline - Python dependencies.
+#
+# The Phase 0 pipeline runs Python code in three contexts:
+#
+#   1. Plain `python3` inside convert.sh (path normalisation, JSON config
+#      read). Uses only the standard library (`os`, `sys`, `json`).
+#
+#   2. Blender's bundled Python (`bpy`). `bpy` cannot be installed from
+#      PyPI for the purpose of this pipeline - it ships with the Blender
+#      app. The blender_toon.py script is run via
+#      `blender --background --python blender_toon.py` so it uses
+#      Blender's interpreter, not the system one.
+#
+#   3. (optional) Apple `usdzconvert` from the USDPython bundle. That tool
+#      ships its own Python runtime; no pip install required.
+#
+# Therefore this file intentionally has no third-party dependencies in
+# Phase 0. If/when we add a post-processing script that needs (for
+# example) `pygltflib` or `numpy`, add it here and document why.

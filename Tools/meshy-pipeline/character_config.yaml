@@ -1,0 +1,84 @@
+# SDG-Lab 角色 / 道具生成配置
+# Phase 0: schema 示例,实际条目在 Phase 2 补齐
+# 参考:GDD.md §5.1 资产清单、§6 Meshy.ai 集成工作流
+
+# 全局默认值,单项可覆盖
+defaults:
+  # Meshy image-to-3d 参数
+  ai_model: "latest"          # meshy-5 / meshy-6 / latest
+  model_type: "standard"       # standard / lowpoly
+  topology: "triangle"         # triangle / quad
+  target_polycount: 30000      # 100 - 300000
+  symmetry_mode: "auto"        # off / auto / on
+  pose_mode: "a-pose"          # a-pose / t-pose / ""
+  enable_pbr: true
+  hd_texture: false
+  should_remesh: true
+  target_formats: ["glb"]      # glb / obj / fbx / stl / usdz / 3mf
+  # 共通风格(texture_prompt 合成时追加)
+  style_prompt: "anime chibi, 3-head proportion, soft cel shading, clean topology, toon style"
+
+  # Rigging 参数
+  rig_height_meters: 1.6
+
+# ---- 角色 ----
+characters:
+  - name: "player_male"
+    description: "Male middle-school student protagonist, casual school uniform (navy blazer, white shirt)"
+    ref_image: "refs/player_male_front.png"   # Phase 2 填充
+    priority: P0
+    animations:
+      - walk
+      - idle
+      - run
+      - talk
+      - wave
+
+  - name: "player_female"
+    description: "Female middle-school student protagonist, casual school uniform (navy blazer, skirt)"
+    ref_image: "refs/player_female_front.png"
+    priority: P0
+    animations:
+      - walk
+      - idle
+      - run
+      - talk
+      - wave
+
+  - name: "kaede"
+    description: "Dr. Kaede, female geology researcher in white lab coat, glasses, dark hair in ponytail"
+    ref_image: "refs/kaede_front.png"
+    priority: P0
+    animations:
+      - walk
+      - idle
+      - talk
+      - kneel
+
+  - name: "teacher"
+    description: "Middle-school homeroom teacher, male, glasses, brown suit"
+    ref_image: "refs/teacher_front.png"
+    priority: P1
+    animations:
+      - idle
+      - talk
+
+# ---- 道具(不需要 rigging / animation) ----
+props:
+  - name: "geological_hammer"
+    description: "Small geological rock hammer with wooden handle, realistic size"
+    ref_image: "refs/hammer_front.png"
+    priority: P0
+    target_polycount: 8000
+
+  - name: "hand_drill"
+    description: "Handheld geological core drill, metal body with orange trigger"
+    ref_image: "refs/drill_front.png"
+    priority: P0
+    target_polycount: 12000
+
+  - name: "sample_bottle"
+    description: "Glass rock-sample bottle with cork stopper, label"
+    ref_image: "refs/bottle_front.png"
+    priority: P0
+    target_polycount: 6000
