@@ -1,0 +1,182 @@
+# ==========================================================================
+# SDG-Lab Continuous Integration
+#
+# Jobs:
+#   1. lint        Ubuntu  — architectural compliance (屎山禁止 grep)
+#                            + asset-validator (skipped until P0-T5 lands)
+#   2. swift-test  macOS   — `swift test` on every SPM package
+#   3. ios-build   macOS   — xcodegen + xcodebuild for the iPad simulator
+#
+# macos-15 runner is used because only that image ships Xcode 26.x +
+# iOS 26.x simulators (confirmed 2026-04-21 via actions/runner-images
+# macos-15 readme). macos-14 maxes out at Xcode 16.2 / iOS 18.2,
+# which is below our iOS 18+ deployment target's preferred simulator.
+#
+# Target wall-clock: < 5 min on a cache-warm PR.
+# ==========================================================================
+
+name: CI
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feat/**"
+      - "fix/**"
+      - "chore/**"
+      - "docs/**"
+  pull_request:
+    branches:
+      - "main"
+  workflow_dispatch: {}
+
+# Cancel superseded runs on the same branch to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 1. Lint — architectural compliance + (eventual) asset validation.
+  #    Ubuntu is fine: pure shell + Python, no Xcode needed.
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint (arch + assets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # No `lfs: true` on purpose — lint only needs .swift / .py / .sh.
+        # Saves ~1 min on LFS bandwidth.
+
+      - name: Architectural compliance (屎山禁止)
+        run: bash ci_scripts/arch_lint.sh
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Asset validator
+        # P0-T5 owns Tools/asset-validator/validate.py. Until it exists,
+        # the step passes silently so CI is green during Phase 0 bring-up.
+        run: |
+          if [ -f Tools/asset-validator/validate.py ]; then
+            pip install -r Tools/asset-validator/requirements.txt
+            python Tools/asset-validator/validate.py --strict Resources/
+          else
+            echo "asset-validator not wired yet (P0-T5 in flight); skipping."
+          fi
+
+  # --------------------------------------------------------------------------
+  # 2. Swift package tests. Fast-ish; runs per SPM package independently so
+  #    one package failing doesn't mask others.
+  # --------------------------------------------------------------------------
+  swift-test:
+    name: Swift tests (${{ matrix.package }})
+    runs-on: macos-15
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [SDGCore, SDGGameplay, SDGUI, SDGPlatform]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Select Xcode
+        # Pin to the latest 26.x present on macos-15 (confirmed 26.3 today).
+        # If that image updates, xcode-select falls back to the default.
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app || \
+            sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+          swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            Packages/${{ matrix.package }}/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ matrix.package }}-${{ hashFiles(format('Packages/{0}/Package.swift', matrix.package)) }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ matrix.package }}-
+
+      - name: swift test
+        run: swift test --package-path Packages/${{ matrix.package }}
+
+  # --------------------------------------------------------------------------
+  # 3. iOS simulator build. The slowest job; runs last so early failures
+  #    are surfaced quickly by lint / swift-test.
+  # --------------------------------------------------------------------------
+  ios-build:
+    name: iOS simulator build
+    runs-on: macos-15
+    timeout-minutes: 20
+    needs: [lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app || \
+            sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick iPad simulator
+        id: pick-sim
+        # Prefer the newest iPad Pro 13" (Phase 0 target is M5 if present,
+        # else fall back). Dynamic lookup keeps the workflow working across
+        # runner-image refreshes without manual edits.
+        run: |
+          set -euo pipefail
+          DEVICE=$(xcrun simctl list devices available \
+            | grep -E 'iPad Pro 13-inch \(M5\)|iPad Pro 13-inch \(M4\)|iPad Pro \(12.9-inch\)' \
+            | head -n1 \
+            | sed -E 's/^[[:space:]]*([^(]+\([^)]+\)).*/\1/' \
+            | sed -E 's/[[:space:]]+$//')
+          if [ -z "$DEVICE" ]; then
+            echo "No suitable iPad simulator found:"
+            xcrun simctl list devices available | grep -i ipad || true
+            exit 1
+          fi
+          echo "Using simulator: $DEVICE"
+          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
+
+      - name: xcodebuild build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SendaiGLab.xcodeproj \
+            -scheme SendaiGLab \
+            -destination "platform=iOS Simulator,name=${{ steps.pick-sim.outputs.device }}" \
+            -configuration Debug \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build \
+            | xcpretty || xcodebuild \
+            -project SendaiGLab.xcodeproj \
+            -scheme SendaiGLab \
+            -destination "platform=iOS Simulator,name=${{ steps.pick-sim.outputs.device }}" \
+            -configuration Debug \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            build

@@ -14,7 +14,10 @@ import PackageDescription
 let package = Package(
     name: "SDGCore",
     platforms: [
-        .iOS(.v18)
+        .iOS(.v18),
+        // macOS target enables `swift test` on the CLI without an iOS
+        // simulator. Kept in lockstep with iOS feature availability.
+        .macOS(.v14)
     ],
     products: [
         .library(
