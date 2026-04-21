@@ -1,0 +1,91 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Xcode
+## Build
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+
+## User settings
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+## SwiftPM
+.swiftpm/
+.build/
+Package.resolved
+Packages/
+
+## Swift Playground
+timeline.xctimeline
+playground.xcworkspace
+
+# CocoaPods (if ever used)
+Pods/
+*.xcworkspace
+
+# Carthage (if ever used)
+Carthage/Build/
+
+# Secrets / credentials
+*.env
+*.env.*
+!.env.example
+secrets/
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+
+# API keys config (never commit)
+Tools/meshy-pipeline/.meshy-api-key
+Tools/*/config.local.json
+
+# Heavy binary intermediates (use Git LFS for committed binaries)
+Tools/*/intermediate/
+Tools/*/output/
+Tools/*/cache/
+
+# Large raw assets (should be in LFS or external storage)
+RawAssets/
+*.gml
+*.glb
+# NOTE: processed USDZ under Resources/ IS committed (with LFS)
+
+# Python (for Tools/)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# Node (if any web tooling)
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
