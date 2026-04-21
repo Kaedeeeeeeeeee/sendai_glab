@@ -128,6 +128,8 @@ sendai_glab/
 
 既存 ADR:
 - [0001 三層アーキテクチャの採用](Docs/ArchitectureDecisions/0001-layered-architecture.md)
+- [0002 Xcode 工程構造(Project + ローカル SPM × 4 + xcodegen)](Docs/ArchitectureDecisions/0002-xcode-project-structure.md)
+- [0003 Event Bus 設計(actor + TaskGroup fan-out)](Docs/ArchitectureDecisions/0003-event-bus-design.md)
 
 ---
 

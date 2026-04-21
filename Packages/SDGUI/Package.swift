@@ -2,7 +2,15 @@
 import PackageDescription
 
 // SDGUI is the only layer allowed to import SwiftUI and RealityKit.
-// Depends on SDGGameplay (which re-exports nothing of UI) and SDGCore.
+// Depends on SDGCore, SDGGameplay, and SDGPlatform.
+//
+// The SDGPlatform dependency is needed because gesture capture
+// (SwiftUI `DragGesture`) must live in SDGUI, while the domain
+// value type `PanEvent` and the `TouchInputService` façade live
+// in SDGPlatform (which cannot import SwiftUI/RealityKit). SDGUI
+// thus imports SDGPlatform to translate platform input into
+// SDGPlatform's domain events; the reverse is never true.
+//
 // Tools-version rationale: see SDGCore/Package.swift.
 
 let package = Package(
@@ -18,14 +26,16 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../SDGCore"),
-        .package(path: "../SDGGameplay")
+        .package(path: "../SDGGameplay"),
+        .package(path: "../SDGPlatform")
     ],
     targets: [
         .target(
             name: "SDGUI",
             dependencies: [
                 .product(name: "SDGCore", package: "SDGCore"),
-                .product(name: "SDGGameplay", package: "SDGGameplay")
+                .product(name: "SDGGameplay", package: "SDGGameplay"),
+                .product(name: "SDGPlatform", package: "SDGPlatform")
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")

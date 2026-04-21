@@ -1,15 +1,30 @@
 import SwiftUI
+import SDGCore
+import SDGUI
 
-// Placeholder root view. Replaced by the real `RealityView`-based HUD in
-// P0-T8. Kept deliberately trivial so P0-T1 only verifies the toolchain.
+// Thin composition root: take the `AppEnvironment` the App target
+// built at launch, inject it into the SwiftUI environment, and
+// hand off to `RootView` (which owns the real Phase 0 scene).
+//
+// Kept deliberately minimal. All rendering and input lives in
+// `RootView` (SDGUI); all domain state lives in `AppEnvironment`
+// (SDGCore).
 
 struct ContentView: View {
+
+    /// The shared dependency container. Passed in from
+    /// `SendaiGLabApp`'s stored property so both App and View
+    /// agree on exactly one instance per launch.
+    let environment: AppEnvironment
+
     var body: some View {
-        Text("SDG-Lab — Phase 0")
-            .font(.largeTitle)
+        RootView()
+            .environment(\.appEnvironment, environment)
     }
 }
 
 #Preview {
-    ContentView()
+    // Previews get a fresh, isolated environment. Good enough for
+    // "does this render at all?"; not good enough for wiring tests.
+    ContentView(environment: AppEnvironment())
 }

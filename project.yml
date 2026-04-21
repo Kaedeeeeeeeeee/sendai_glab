@@ -53,18 +53,17 @@ targets:
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.education
         INFOPLIST_KEY_CFBundleDisplayName: SDG-Lab
-        INFOPLIST_KEY_UIRequiresFullScreen: NO
-        # Orientation: landscape primary, portrait allowed.
-        # Separate keys for iPhone vs iPad so iPad gets all four.
+        # Landscape-only game requires full-screen on iPad (disables Split View/Slide Over,
+        # which would otherwise force us to support portrait).
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        # Orientation: LANDSCAPE ONLY (f.shera decision 2026-04-21).
+        # This is a landscape-first game; portrait is NOT supported.
         INFOPLIST_KEY_UISupportedInterfaceOrientations: >-
           UIInterfaceOrientationLandscapeLeft
           UIInterfaceOrientationLandscapeRight
-          UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: >-
           UIInterfaceOrientationLandscapeLeft
           UIInterfaceOrientationLandscapeRight
-          UIInterfaceOrientationPortrait
-          UIInterfaceOrientationPortraitUpsideDown
         TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
