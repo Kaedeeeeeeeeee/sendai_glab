@@ -39,6 +39,12 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: SendaiGLab
+      # Bundled runtime data (geology outcrop JSON, Localization catalog,
+      # future shader assets). Path-level include so every file under
+      # Resources/ ends up in the app bundle automatically.
+      - path: Resources
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: SDGCore
       - package: SDGGameplay

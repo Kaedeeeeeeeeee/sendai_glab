@@ -41,6 +41,38 @@ public struct PanEvent: GameEvent, Equatable {
     }
 }
 
+/// A pan specifically meant for camera look control — the right-half-
+/// screen drag that rotates yaw and pitch in a first-person rig.
+///
+/// Kept as a separate type from `PanEvent` so subscribers can listen
+/// for *only* look input without filtering generic pans. The payload
+/// is still raw screen-space point deltas; converting to radians is
+/// the consumer's responsibility (the player control Store multiplies
+/// by a sensitivity constant before forwarding to the System).
+///
+/// Why "per-sample delta", not "absolute position"? A drag gesture in
+/// SwiftUI yields a translation from the gesture's start; we post a
+/// fresh event whenever the translation increments, carrying just the
+/// frame-to-frame delta. Consumers that need the running total can
+/// accumulate locally; consumers that do not (the camera) never have
+/// to subtract old from new.
+public struct LookPanEvent: GameEvent, Equatable {
+
+    /// Horizontal delta since the previous look sample, in points.
+    /// Positive = finger moved right.
+    public let dx: Double
+
+    /// Vertical delta since the previous look sample, in points.
+    /// Positive = finger moved down (SwiftUI convention). The camera
+    /// rig is free to invert this for "natural" pitch at the call site.
+    public let dy: Double
+
+    public init(dx: Double, dy: Double) {
+        self.dx = dx
+        self.dy = dy
+    }
+}
+
 /// Stateless helper that ferries `PanEvent`s from a platform input
 /// source (currently SwiftUI's `DragGesture`, wired up in SDGUI) to
 /// the rest of the app via `EventBus`.
@@ -72,6 +104,16 @@ public struct TouchInputService: Sendable {
     /// is a debug logger; later phases will attach camera and HUD
     /// handlers here.
     public func publish(pan event: PanEvent) async {
+        await eventBus.publish(event)
+    }
+
+    /// Publish a right-half-screen look pan on the shared event bus.
+    ///
+    /// The SDGUI gesture layer is responsible for classifying the
+    /// drag ("is this a joystick grab or a look pan?") because only
+    /// SwiftUI knows the on-screen geometry. By the time we get here,
+    /// the sample is already known to be look input.
+    public func publish(look event: LookPanEvent) async {
         await eventBus.publish(event)
     }
 }

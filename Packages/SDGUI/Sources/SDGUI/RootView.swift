@@ -1,170 +1,445 @@
 // RootView.swift
 // SDGUI
 //
-// The app's root SwiftUI view for Phase 0. Composes a minimal
-// 3D scene (green ground plane + blue capsule-like prop) with a
-// HUD text overlay, and forwards `DragGesture` translations to
-// SDGPlatform's `TouchInputService` so the event bus wiring can
-// be observed end-to-end in the console.
+// Phase 1 POC root view — wires the complete gameplay loop:
+// walk → drill → sample spawns → inventory.
 //
-// The scene is intentionally bare. Real gameplay content, the
-// Toon shader, and ECS Systems arrive in Phase 1. This file's
-// job is just to prove the plumbing — AppEnvironment injection,
-// RealityView rendering, and input → bus → subscriber — works.
+// Scene layout (see GDD §1.3 / §1.5):
+//   * Outcrop: 4-layer stacked box tree built by
+//     `GeologySceneBuilder.loadOutcrop("test_outcrop")`. Each layer is
+//     a child Entity with a toon-shaded `PhysicallyBasedMaterial`
+//     (ADR-0004) + `GeologyLayerComponent` + `CollisionComponent`.
+//   * Player: rounded-box capsule tagged with `PlayerComponent`, placed
+//     on top of the outcrop. `PerspectiveCamera` parented at head height
+//     (1.5 m). Yaw on the body, pitch on the camera (ADR P1-T1).
+//   * Sample container: an invisible `Entity` that holds the spawned
+//     sample cores. Each `SampleCreatedEvent` appends a
+//     `SampleEntity.make(…)` child to it, 80 cm to the right of the
+//     player, 50 cm up.
+//
+// Architectural contract (ADR-0001 §"Dependency flow"):
+//   View                             Store                      Orchestrator / System
+//   ─────                            ─────                      ──────────────────────
+//   joystick onChange ──▶ intent(.move)     ─────────────────▶  PlayerControlSystem
+//                                                                (updates Entity transforms)
+//
+//   DrillButton tap   ──▶ intent(.drillAt)  ──▶ publish DrillRequested
+//                                                                ▼
+//                                                     DrillingOrchestrator
+//                                                     ├─▶ detectLayers(under: outcrop)
+//                                                     ├─▶ buildSampleItem
+//                                                     └─▶ publish SampleCreatedEvent
+//                                                                ▼
+//                                              InventoryStore.samples.append
+//                                              RootView handler: SampleEntity.make(…)
+//                                                                └─▶ add to sampleContainer
 
 import SwiftUI
 import RealityKit
 import SDGCore
+import SDGGameplay
 import SDGPlatform
 
-/// Phase 0 root view.
+// MARK: - Scene references
+
+/// Weakly-typed holder for long-lived scene Entities the view needs to
+/// reach after `RealityView` has finished its initial build. Kept as a
+/// plain `@MainActor` class so closures captured by the store
+/// orchestrator (which outlive any particular view redraw) can still
+/// read the current outcrop / player / sample container.
+@MainActor
+final class POCSceneRefs {
+    /// Root of the loaded geology outcrop, assigned once in the
+    /// RealityView `make` closure.
+    var outcropRoot: Entity?
+
+    /// The player body. Used to read world position for drilling.
+    var playerEntity: Entity?
+
+    /// Invisible parent that collects spawned sample cores so they can
+    /// be wiped en masse when the player clears inventory.
+    var sampleContainer: Entity?
+
+    init() {}
+}
+
+// MARK: - RootView
+
+/// Phase 1 POC root view.
 ///
-/// Call-site is `ContentView`, which wraps this in
-/// `.environment(\.appEnvironment, …)` to inject the shared
-/// dependency container.
+/// Owns the full gameplay loop: player control, geology outcrop,
+/// drilling → sample spawn, inventory presentation. All domain state
+/// lives in Stores injected via `AppEnvironment`; nothing in this view
+/// is a singleton (AGENTS.md Rule 2).
 ///
-/// - Important: The `init()` is public but takes no arguments:
-///   `RootView` is pure; all state comes from `@Environment`.
+/// Availability: SDGUI pins iOS 18 / macOS 15 in its package manifest,
+/// so no explicit `@available` marker is needed for `RealityView`,
+/// `SceneUpdateContext.entities(matching:)`, or
+/// `MeshResource.generateCylinder(height:radius:)`.
 public struct RootView: View {
 
-    /// Shared dependency container (event bus, localization …).
-    /// Injected via `AppEnvironmentKey`. If the App target forgot
-    /// to inject one, the key's `defaultValue` keeps the view
-    /// renderable (useful for Previews).
+    /// Shared dependency container (EventBus, LocalizationService).
     @Environment(\.appEnvironment) private var env: AppEnvironment
 
-    /// Retained across view updates so we can tear the debug
-    /// subscription down in `.onDisappear`. Storing an optional
-    /// lets us distinguish "not yet subscribed" from "already
-    /// cancelled".
-    @State private var debugSubscription: SubscriptionToken?
+    /// Player input store. Mutable `@State` so SwiftUI owns a single
+    /// instance; swapped on `.task` to use the real EventBus.
+    @State private var playerStore: PlayerControlStore
 
-    /// Default public initializer — the view has no tunable
-    /// parameters in Phase 0.
-    public init() {}
+    /// Drilling state machine. Published `DrillRequested` / subscribed
+    /// to `DrillCompleted` / `DrillFailed` once `start()` runs.
+    @State private var drillingStore: DrillingStore
+
+    /// Sample inventory backed by UserDefaults. Subscribes to
+    /// `SampleCreatedEvent` once `start()` runs.
+    @State private var inventoryStore: InventoryStore
+
+    /// Retained reference to the orchestrator that converts
+    /// `DrillRequested` into layer detection + SampleItem construction.
+    @State private var orchestrator: DrillingOrchestrator?
+
+    /// Long-lived Entity handles. Populated by `RealityView.make`.
+    @State private var sceneRefs = POCSceneRefs()
+
+    /// Latest joystick output. Mirrored into `PlayerControlStore` via
+    /// `.onChange` so the joystick view stays decoupled from Stores.
+    @State private var joystickAxis: SIMD2<Float> = .zero
+
+    /// Frame-to-frame look baseline so we emit deltas instead of a
+    /// growing absolute. Reset on gesture end.
+    @State private var lastLookTranslation: CGSize = .zero
+
+    /// Whether the inventory sheet is presented.
+    @State private var showInventory: Bool = false
+
+    /// Event subscription tokens retained so we can cancel on disappear.
+    @State private var sampleCreatedToken: SubscriptionToken?
+    @State private var moveIntentDebugToken: SubscriptionToken?
+
+    /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
+    /// device width on iPad landscape; a 1000-pt drag rotating by one
+    /// radian (≈57°) feels right on first play.
+    private let lookSensitivity: Float = 1.0 / 1000.0
+
+    /// Default public initializer. Allocates placeholder stores tied to
+    /// an empty bus; `.task` re-binds them to the real env bus on first
+    /// appearance. The placeholder cost is three fresh actors with no
+    /// subscribers — negligible.
+    public init() {
+        let placeholder = EventBus()
+        _playerStore = State(initialValue: PlayerControlStore(eventBus: placeholder))
+        _drillingStore = State(initialValue: DrillingStore(eventBus: placeholder))
+        _inventoryStore = State(initialValue: InventoryStore(eventBus: placeholder))
+    }
 
     public var body: some View {
         ZStack {
             realityContent
-            overlay
+            HUDOverlay(
+                playerStore: playerStore,
+                drillingStore: drillingStore,
+                inventoryStore: inventoryStore,
+                joystickAxis: $joystickAxis,
+                onDrillTapped: handleDrillTap,
+                onInventoryTapped: { showInventory = true }
+            )
         }
         .ignoresSafeArea()
-        .task {
-            // Subscribe *once* when the view first appears. We
-            // can't do this in `init()` because the environment
-            // isn't readable there, and we can't do it in `body`
-            // because that re-runs on every state change. `.task`
-            // runs exactly once per lifetime of the view.
-            if debugSubscription == nil {
-                debugSubscription = await env.eventBus.subscribe(PanEvent.self) { event in
-                    // Console-log only. No UI side-effects: Phase 0
-                    // just needs to prove events flow through.
-                    print("pan dx=\(event.dx) dy=\(event.dy)")
-                }
-            }
-        }
-        .onDisappear {
-            // Release the subscription. Cancellation is async on
-            // an actor; kick it off in a detached Task. Capture
-            // the token value (not `self`) so the closure stays
-            // Sendable.
-            if let token = debugSubscription {
-                let bus = env.eventBus
-                Task { await bus.cancel(token) }
-                debugSubscription = nil
-            }
-        }
-    }
-
-    // MARK: - Subviews
-
-    /// The 3D scene: green ground plane + blue prop + camera.
-    ///
-    /// `DragGesture` is attached here (not on the overlay) so
-    /// drags that start on empty space still register. The
-    /// gesture callback pushes samples through `TouchInputService`
-    /// onto the shared `EventBus`; the `.task` above subscribes
-    /// and logs them.
-    private var realityContent: some View {
-        // Snapshot the bus before building the gesture so the
-        // closure doesn't need to close over `self`. `EventBus`
-        // is an actor reference, cheap and Sendable.
-        let input = TouchInputService(eventBus: env.eventBus)
-
-        return RealityView { content in
-            // Ground plane: 10 m × 10 m, green, non-metallic. The
-            // plane is a horizontal surface (XZ plane) so the prop
-            // visually "stands on" it when placed at y > 0.
-            let groundMesh = MeshResource.generatePlane(width: 10, depth: 10)
-            let groundMaterial = SimpleMaterial(color: .systemGreen,
-                                                roughness: 0.8,
-                                                isMetallic: false)
-            let ground = ModelEntity(mesh: groundMesh,
-                                     materials: [groundMaterial])
-            content.add(ground)
-
-            // "Capsule" stand-in: a tall rounded box. RealityKit
-            // ships no `MeshResource.generateCapsule` on iOS 18
-            // (only a `ShapeResource` for physics), so we fake the
-            // silhouette with `generateBox(cornerRadius:)`. Sized
-            // roughly humanoid: 0.5 m wide, 1.5 m tall.
-            let bodyMesh = MeshResource.generateBox(
-                size: SIMD3<Float>(0.5, 1.5, 0.5),
-                cornerRadius: 0.25
+        // `fullScreenCover` is iOS-only; macOS falls back to `sheet`
+        // so `swift test` on the macOS host can still compile this view.
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showInventory) {
+            InventoryView(
+                inventoryStore: inventoryStore,
+                onClose: { showInventory = false }
             )
-            let bodyMaterial = SimpleMaterial(color: .systemBlue,
-                                              roughness: 0.4,
-                                              isMetallic: false)
-            let prop = ModelEntity(mesh: bodyMesh,
-                                   materials: [bodyMaterial])
-            // Lift so the prop's bottom sits on y=0 (mesh is
-            // centred on its origin).
-            prop.position = SIMD3<Float>(0, 0.75, 0)
-            content.add(prop)
-
-            // Camera pulled back and up, aimed at the origin so
-            // the ground and prop are both framed.
-            let camera = PerspectiveCamera()
-            camera.position = SIMD3<Float>(0, 1.8, 4)
-            camera.look(at: SIMD3<Float>(0, 0.75, 0),
-                        from: camera.position,
-                        relativeTo: nil)
-            content.add(camera)
         }
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    // Hop onto a Task so we can call the actor
-                    // without blocking the gesture recogniser.
-                    let pan = PanEvent(
-                        dx: Double(value.translation.width),
-                        dy: Double(value.translation.height)
-                    )
-                    Task { await input.publish(pan: pan) }
-                }
-        )
+        #else
+        .sheet(isPresented: $showInventory) {
+            InventoryView(
+                inventoryStore: inventoryStore,
+                onClose: { showInventory = false }
+            )
+        }
+        #endif
+        .task { await bootstrap() }
+        .onDisappear { teardown() }
+        .onChange(of: joystickAxis) { _, new in
+            let store = playerStore
+            Task { @MainActor in
+                await store.intent(.move(new))
+            }
+        }
     }
 
-    /// HUD overlay — a single watermark so launch is visually
-    /// confirmable even on the simulator.
+    // MARK: - RealityView content
+
+    /// The 3D scene. Registers ECS systems once per process, loads the
+    /// test outcrop from the app bundle, and places the player on top.
     ///
-    /// Not localised yet (AGENTS.md §5): Phase 0 diagnostic text
-    /// only. Once we wire `LocalizationService` into views, this
-    /// string moves into the string catalog.
-    private var overlay: some View {
-        VStack {
-            Text("SDG-Lab — Phase 0")
-                .font(.largeTitle)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(.black.opacity(0.6), in: .capsule)
-                .padding(.top, 40)
-            Spacer()
+    /// Build logic is inlined inside the `RealityView` closure so the
+    /// compiler can infer the concrete content type (iOS 18's closure
+    /// parameter name is not stable across SDK versions; inference
+    /// spares us from spelling it out).
+    private var realityContent: some View {
+        RealityView { content in
+            Self.registerSystemsOnce()
+
+            let outcrop: Entity
+            do {
+                outcrop = try GeologySceneBuilder.loadOutcrop(
+                    namedResource: "test_outcrop",
+                    in: .main
+                )
+            } catch {
+                // Fall back to a plain green plane so the player still
+                // has somewhere to stand while we diagnose the bundle
+                // issue.
+                print("[SDG-Lab] GeologySceneBuilder.loadOutcrop failed: \(error)")
+                outcrop = ModelEntity(
+                    mesh: .generatePlane(width: 10, depth: 10),
+                    materials: [SimpleMaterial(color: .systemGreen, isMetallic: false)]
+                )
+            }
+            content.add(outcrop)
+            sceneRefs.outcropRoot = outcrop
+
+            // Player capsule on top of the outcrop. Y=0.75 places the
+            // box's centre at half-height above the surface so the body
+            // doesn't clip through.
+            let body = ModelEntity(
+                mesh: .generateBox(
+                    size: SIMD3<Float>(0.5, 1.5, 0.5),
+                    cornerRadius: 0.25
+                ),
+                materials: [SimpleMaterial(
+                    color: .systemBlue,
+                    roughness: 0.4,
+                    isMetallic: false
+                )]
+            )
+            body.position = SIMD3<Float>(2, 0.75, 2)
+            body.components.set(PlayerComponent())
+            body.components.set(PlayerInputComponent())
+
+            let camera = PerspectiveCamera()
+            camera.position = SIMD3<Float>(0, 1.5, 0)
+            body.addChild(camera)
+
+            content.add(body)
+            sceneRefs.playerEntity = body
+            playerStore.attach(playerEntity: body)
+
+            // Invisible parent for spawned samples. Kept as a sibling of
+            // the outcrop so clearing inventory can drop the whole
+            // subtree in one line.
+            let samples = Entity()
+            samples.name = "SampleContainer"
+            content.add(samples)
+            sceneRefs.sampleContainer = samples
         }
-        // Let taps fall through to the RealityView's drag
-        // gesture. Without this, the VStack's hit-testing would
-        // swallow drags that start over the watermark.
-        .allowsHitTesting(false)
+        .gesture(lookGesture)
+    }
+
+    // MARK: - Drill button handler
+
+    /// Converts a HUD DrillButton tap into a `DrillingStore` intent.
+    /// The drill origin is the player's current world position; the
+    /// Orchestrator resolves which outcrop entity to raycast against.
+    private func handleDrillTap() {
+        guard let player = sceneRefs.playerEntity else { return }
+        let origin = player.position(relativeTo: nil)
+        let store = drillingStore
+        Task { @MainActor in
+            await store.intent(.drillAt(
+                origin: origin,
+                direction: SIMD3<Float>(0, -1, 0),
+                maxDepth: 10
+            ))
+        }
+    }
+
+    // MARK: - Bootstrap
+
+    /// Runs once on first `.task`. Swaps the placeholder stores for
+    /// ones bound to the real EventBus, starts their subscriptions,
+    /// spins up the DrillingOrchestrator, and wires the
+    /// `SampleCreatedEvent` → scene handler.
+    @MainActor
+    private func bootstrap() async {
+        let bus = env.eventBus
+
+        // Rebind stores to the real bus. Safe because no intents have
+        // been submitted yet (we're inside the view's first .task).
+        playerStore = PlayerControlStore(eventBus: bus)
+        drillingStore = DrillingStore(eventBus: bus)
+        inventoryStore = InventoryStore(eventBus: bus)
+
+        // Re-attach the Store to the already-built player entity.
+        if let body = sceneRefs.playerEntity {
+            playerStore.attach(playerEntity: body)
+        }
+
+        await drillingStore.start()
+        await inventoryStore.start()
+
+        // Orchestrator reads outcropRoot via closure so it sees the
+        // latest reference even if the scene is rebuilt later.
+        let refs = sceneRefs
+        let orch = DrillingOrchestrator(
+            eventBus: bus,
+            outcropRootProvider: { refs.outcropRoot }
+        )
+        await orch.start()
+        orchestrator = orch
+
+        // Subscribe to sample creation so newly drilled cores appear in
+        // the scene next to the player.
+        sampleCreatedToken = await bus.subscribe(SampleCreatedEvent.self) { event in
+            await spawnSampleInScene(for: event.sample)
+        }
+
+        // Developer-facing debug: log every move intent. Real HUD
+        // subscribers land in Phase 2.
+        if moveIntentDebugToken == nil {
+            moveIntentDebugToken = await bus.subscribe(PlayerMoveIntentChanged.self) { event in
+                print("player move axis=\(event.axis.x),\(event.axis.y)")
+            }
+        }
+    }
+
+    /// Builds a 3D representation of a newly drilled sample and parents
+    /// it to the sample container, offset from the player so it lands
+    /// in view rather than at the outcrop origin.
+    @MainActor
+    private func spawnSampleInScene(for sample: SampleItem) async {
+        guard
+            let container = sceneRefs.sampleContainer,
+            let player = sceneRefs.playerEntity
+        else { return }
+
+        // Reconstruct `[LayerIntersection]` from the recorded layers.
+        // We use depth-from-sample-top as entry/exit; the sample core's
+        // geometry only cares about relative depth, not the original
+        // world-space positions.
+        var cursor: Float = 0
+        var intersections: [LayerIntersection] = []
+        intersections.reserveCapacity(sample.layers.count)
+        for layer in sample.layers {
+            let entry = cursor
+            let exit = cursor + layer.thickness
+            intersections.append(LayerIntersection(
+                layerId: layer.layerId,
+                nameKey: layer.nameKey,
+                colorRGB: layer.colorRGB,
+                entryDepth: entry,
+                exitDepth: exit,
+                thickness: layer.thickness,
+                entryPoint: SIMD3<Float>(0, -entry, 0),
+                exitPoint: SIMD3<Float>(0, -exit, 0)
+            ))
+            cursor = exit
+        }
+
+        do {
+            let entity = try await SampleEntity.make(
+                from: intersections,
+                radius: 0.05,
+                addOutline: true
+            )
+            let playerPos = player.position(relativeTo: nil)
+            entity.position = SIMD3<Float>(
+                playerPos.x + 0.8,  // 80 cm to the right of the player
+                playerPos.y + 0.5,  // 50 cm above ground for "float"
+                playerPos.z
+            )
+            container.addChild(entity)
+        } catch {
+            print("[SDG-Lab] SampleEntity.make failed: \(error)")
+        }
+    }
+
+    // MARK: - Teardown
+
+    /// Cancels subscriptions and stops Store lifecycles when the view
+    /// disappears. Best-effort — scheduled on detached Tasks because
+    /// `onDisappear` is synchronous.
+    private func teardown() {
+        let bus = env.eventBus
+        if let token = sampleCreatedToken {
+            Task { await bus.cancel(token) }
+            sampleCreatedToken = nil
+        }
+        if let token = moveIntentDebugToken {
+            Task { await bus.cancel(token) }
+            moveIntentDebugToken = nil
+        }
+        let ds = drillingStore
+        let inv = inventoryStore
+        let orch = orchestrator
+        Task {
+            await ds.stop()
+            await inv.stop()
+            if let orch { await orch.stop() }
+        }
+        playerStore.detach()
+    }
+
+    // MARK: - Look gesture
+
+    /// Right-half-screen `DragGesture`: translates raw point deltas
+    /// into radian look-intents and forwards them to the Store.
+    private var lookGesture: some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .onChanged { value in
+                let halfWidth = Self.currentScreenWidth / 2
+                guard value.startLocation.x >= halfWidth else { return }
+
+                let dx = value.translation.width - lastLookTranslation.width
+                let dy = value.translation.height - lastLookTranslation.height
+                lastLookTranslation = value.translation
+
+                let yaw = Float(dx) * lookSensitivity
+                let pitch = Float(-dy) * lookSensitivity
+
+                let store = playerStore
+                let bus = env.eventBus
+                Task { @MainActor in
+                    await store.intent(.look(SIMD2(yaw, pitch)))
+                }
+                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
+            }
+            .onEnded { _ in
+                lastLookTranslation = .zero
+            }
+    }
+
+    // MARK: - ECS system registration
+
+    @MainActor private static var systemsRegistered = false
+
+    @MainActor
+    private static func registerSystemsOnce() {
+        guard !systemsRegistered else { return }
+        PlayerComponent.registerComponent()
+        PlayerInputComponent.registerComponent()
+        PlayerControlSystem.registerSystem()
+        systemsRegistered = true
+    }
+
+    // MARK: - Screen width helper
+
+    @MainActor
+    private static var currentScreenWidth: CGFloat {
+        #if canImport(UIKit)
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first,
+           let window = scene.windows.first {
+            return window.bounds.width
+        }
+        return 1366
+        #else
+        return 1366
+        #endif
     }
 }

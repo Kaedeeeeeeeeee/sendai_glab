@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0BAD3697E1AC691652AD5D03 /* SendaiGLabApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41234A757A6A535C11DD800A /* SendaiGLabApp.swift */; };
 		210F564EB19CC8FC2F109B91 /* SDGUI in Frameworks */ = {isa = PBXBuildFile; productRef = B10C1CEC652506FB6A2A274A /* SDGUI */; };
+		2384F9FBF8442398ECE6E4EE /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = 7C599BC245A359C14D6A8EA8 /* Resources */; };
 		52DE50367B8F9BF1542CF39E /* SDGPlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 26DEE95F3289A53AC291AE69 /* SDGPlatform */; };
 		61F36F87C2635298C66AEAD3 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE1339749E907F62D014261 /* ContentView.swift */; };
 		A76D0AA1C444E67E1F3417E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 851EAE20BF238919AEF68AF7 /* Assets.xcassets */; };
@@ -21,6 +22,7 @@
 		3373356DF7535D4925743435 /* SDGUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGUI; path = Packages/SDGUI; sourceTree = SOURCE_ROOT; };
 		3BE1339749E907F62D014261 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		41234A757A6A535C11DD800A /* SendaiGLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendaiGLabApp.swift; sourceTree = "<group>"; };
+		7C599BC245A359C14D6A8EA8 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = SOURCE_ROOT; };
 		7D6B5476525BB5980361D39A /* SDGGameplay */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGGameplay; path = Packages/SDGGameplay; sourceTree = SOURCE_ROOT; };
 		851EAE20BF238919AEF68AF7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BC798CEA09AB97A153A4BC27 /* SDGCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGCore; path = Packages/SDGCore; sourceTree = SOURCE_ROOT; };
@@ -57,6 +59,7 @@
 			children = (
 				B4D329C318F3C02C2B23380A /* Packages */,
 				25B80FCFA0E89E5BA1A59B80 /* SendaiGLab */,
+				7C599BC245A359C14D6A8EA8 /* Resources */,
 				4E02A08720BA0C08208661CD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -152,6 +155,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A76D0AA1C444E67E1F3417E6 /* Assets.xcassets in Resources */,
+				2384F9FBF8442398ECE6E4EE /* Resources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

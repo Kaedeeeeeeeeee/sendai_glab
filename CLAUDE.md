@@ -85,9 +85,21 @@
 - [x] GitHub Actions CI(lint / swift-test / ios-build、macos-15 + Xcode 26.3)
 - [x] Orientation: landscape only 確定(2026-04-21 f.shera 指示)
 
-### Phase 1 POC — 未着手
+### Phase 1 POC — 完了(2026-04-21、feature branch `feat/phase-1-poc`)
 
-次は GDD §4.2 / plan §3 参照:Player 控制、地質シーン、raycast、堆叠圆柱サンプル生成、背包、Toon Shader v0。
+- [x] Wave α: Player 控制 + 地質シーン + Inventory store(3 並列)
+- [x] Wave β.1: GeologyDetection + Toon Shader(2 並列、ADR-0004 方案 C)
+- [x] Wave β.2: Drilling Orchestrator + StackedCylinderMeshBuilder(2 並列)
+- [x] Wave γ.1: Sample icon + HUD 骨架 + Contracts docs(3 並列)
+- [x] Wave γ.2: Inventory UI(grid + 詳細)
+- [x] P1-T11 integration: RootView 全パイプ結線、POC Report
+
+**合計 199 tests / 0 failure**(SDGCore 22 + SDGGameplay 136 + SDGUI 41)
+
+### Phase 2 Alpha — 未着手
+
+GDD §4.3 参照:残りツール、車両、Workbench、Encyclopedia、Quest / Dialogue 移植、
+PLATEAU 仙台データ統合、Meshy キャラクター 生成、災害イベント。
 
 ## よく参照するパス
 

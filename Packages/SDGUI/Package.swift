@@ -17,10 +17,12 @@ let package = Package(
     name: "SDGUI",
     platforms: [
         .iOS(.v18),
-        // Match SDGCore so package graph resolves. SwiftUI and RealityKit
-        // are both available on macOS 14+ (Apple Silicon), so library
-        // builds on macOS for any future CI/IDE tooling.
-        .macOS(.v14)
+        // macOS 15 is required because `PlayerControlSystem` (and any
+        // future ECS System wiring) depends on RealityFoundation's
+        // iOS 18 / macOS 15 `SceneUpdateContext.entities(matching:)` API.
+        // SwiftUI and RealityKit are both available on macOS 14+, but
+        // our System features aren't, so we pin to 15 here.
+        .macOS(.v15)
     ],
     products: [
         .library(
