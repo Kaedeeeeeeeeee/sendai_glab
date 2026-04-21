@@ -1,0 +1,7 @@
+.meshy-api-key
+output/*
+!output/.gitkeep
+.state.json
+__pycache__/
+.venv/
+*.pyc

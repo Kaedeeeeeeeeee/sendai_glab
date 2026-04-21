@@ -1,0 +1,2 @@
+# asset-validator intentionally uses only the Python 3.11+ standard library.
+# No third-party dependencies. Listed file kept for CI discoverability.

@@ -67,15 +67,27 @@
 
 ## 進捗メモ
 
+### Phase 0 — 完了(2026-04-21、feature branch `feat/phase-0-bootstrap`)
+
 - [x] GDD.md 起草・確認済み
-- [x] Git 初期化・remote 追加
-- [x] README / LICENSE / .gitignore / AGENTS.md 作成
-- [ ] ディレクトリ骨格作成
-- [ ] ADR-0001 起稿
-- [ ] Xcode プロジェクト初期化
-- [ ] Tools/plateau-pipeline スケルトン
-- [ ] Tools/meshy-pipeline スケルトン
-- [ ] 初回 push to origin/main
+- [x] Git 初期化 + remote + MIT LICENSE + .gitignore
+- [x] AGENTS.md / CLAUDE.md / ADR-0001〜0003
+- [x] ディレクトリ骨格
+- [x] Xcode プロジェクト(xcodegen + 4 local SPM:SDGCore/Gameplay/UI/Platform)
+- [x] SDGCore 実装(EventBus / Store / DI / L10n) 22/22 tests pass
+- [x] SDGUI / SDGPlatform / SDGGameplay 骨格(RootView + AppEnvironmentKey + TouchInputService)
+- [x] 真機対応シーン(RealityView + 緑地面 + 蓝 capsule + pan 手势 log)
+- [x] Tools/plateau-pipeline(convert.sh + blender_toon.py)
+- [x] Tools/meshy-pipeline(meshy_client.py + batch driver)
+- [x] Tools/asset-validator(5 ルール群、stdlib only)
+- [x] Tools/localization-importer(Unity JSON → xcstrings 564 keys)
+- [x] .gitattributes + Git LFS 初期化
+- [x] GitHub Actions CI(lint / swift-test / ios-build、macos-15 + Xcode 26.3)
+- [x] Orientation: landscape only 確定(2026-04-21 f.shera 指示)
+
+### Phase 1 POC — 未着手
+
+次は GDD §4.2 / plan §3 参照:Player 控制、地質シーン、raycast、堆叠圆柱サンプル生成、背包、Toon Shader v0。
 
 ## よく参照するパス
 
@@ -83,10 +95,24 @@
 - 旧 Unity Story:`/Users/user/Unity/GeoModelTest/StorySummary.md`
 - 旧 Unity CLAUDE.md:`/Users/user/Unity/GeoModelTest/CLAUDE.md`
 
-## ビルド・実行コマンド(Phase 0 で確定)
+## ビルド・実行コマンド
 
 ```bash
-# (TBD after Xcode project created)
+# xcodeproj の再生成(project.yml を変更した時)
+xcodegen generate
+
+# iOS simulator build(M4/M5 どちらも可、CI は dynamic 解決)
+xcodebuild -scheme SendaiGLab \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' build
+
+# Core の単体テスト
+swift test --package-path Packages/SDGCore
+
+# 架构合規 lint
+bash ci_scripts/arch_lint.sh
+
+# 資産バリデーション
+python3 Tools/asset-validator/validate.py Resources/
 ```
 
 ## 会話テンプレート応答

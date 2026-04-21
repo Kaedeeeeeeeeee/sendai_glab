@@ -1,0 +1,6 @@
+{
+  "default_lod": 2,
+  "decimate_ratio": 0.5,
+  "max_mesh_verts_warn": 50000,
+  "comment": "Phase 0 占位配置。Phase 1 Toon 管线接入后扩展。"
+}

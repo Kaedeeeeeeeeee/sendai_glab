@@ -1,0 +1,16 @@
+# PLATEAU CityGML source data is downloaded by the developer and is too
+# large (tens to hundreds of MB per tile) to commit to the repo. Treat
+# anything that shows up here as local-only; the convert.sh input is
+# expected to live under this directory.
+
+*.gml
+*.GML
+*.xml
+*.XML
+*.citygml
+*.CityGML
+*.zip
+*.tar.gz
+
+# Keep the directory itself tracked.
+!.gitignore

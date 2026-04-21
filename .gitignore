@@ -29,7 +29,7 @@ xcuserdata/
 .swiftpm/
 .build/
 Package.resolved
-Packages/
+# NOTE: Packages/ is our local SPM modules root, DO NOT ignore.
 
 ## Swift Playground
 timeline.xctimeline
