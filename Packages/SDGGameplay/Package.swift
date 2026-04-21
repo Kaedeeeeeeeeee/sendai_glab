@@ -9,7 +9,11 @@ import PackageDescription
 let package = Package(
     name: "SDGGameplay",
     platforms: [
-        .iOS(.v18)
+        .iOS(.v18),
+        // macOS(.v14) matches SDGCore so `swift test` can run on CI's macOS
+        // runner (tests the portable business logic without a simulator).
+        // This does not affect iOS runtime behavior.
+        .macOS(.v14)
     ],
     products: [
         .library(

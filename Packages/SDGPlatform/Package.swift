@@ -8,7 +8,9 @@ import PackageDescription
 let package = Package(
     name: "SDGPlatform",
     platforms: [
-        .iOS(.v18)
+        .iOS(.v18),
+        // Match SDGCore so package graph resolves.
+        .macOS(.v14)
     ],
     products: [
         .library(

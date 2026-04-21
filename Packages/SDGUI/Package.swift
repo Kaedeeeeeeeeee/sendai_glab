@@ -16,7 +16,11 @@ import PackageDescription
 let package = Package(
     name: "SDGUI",
     platforms: [
-        .iOS(.v18)
+        .iOS(.v18),
+        // Match SDGCore so package graph resolves. SwiftUI and RealityKit
+        // are both available on macOS 14+ (Apple Silicon), so library
+        // builds on macOS for any future CI/IDE tooling.
+        .macOS(.v14)
     ],
     products: [
         .library(
