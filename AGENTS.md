@@ -131,6 +131,15 @@ sendai_glab/
 - [0002 Xcode 工程構造(Project + ローカル SPM × 4 + xcodegen)](Docs/ArchitectureDecisions/0002-xcode-project-structure.md)
 - [0003 Event Bus 設計(actor + TaskGroup fan-out)](Docs/ArchitectureDecisions/0003-event-bus-design.md)
 
+## 4.1 Contracts
+
+ADR が「なぜそう設計したか」を記録するのに対して、Contracts は「今どういう形をしているか」を記録する生きたリファレンスです。
+
+- [Events Catalog](Docs/Contracts/Events.md) — すべての `GameEvent` の fields / publisher / subscriber
+- [Stores Catalog](Docs/Contracts/Stores.md) — すべての `Store` 実装の Intent / State / 購読状態
+
+**Binding rule**:新しい `: GameEvent` struct や `: Store` クラスを追加する PR は、必ず対応する Contracts ドキュメントを同じ PR で更新すること。パブリッシャ / サブスクライバ / Intent ケースを増減した時も同様。PR レビューで確認する。
+
 ---
 
 ## 5. Multilingual Requirement (MUST)
