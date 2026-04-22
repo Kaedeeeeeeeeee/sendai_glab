@@ -87,11 +87,23 @@ public final class TerrainLoader {
         self.bundle = bundle
     }
 
-    /// Load, center horizontally + ground-snap on Y. The returned
-    /// entity can be parented directly under the scene root; it carries
-    /// no collision, no physics — it's a visual-only backdrop at
-    /// Phase 3. Add `CollisionComponent` in a follow-up task if/when
-    /// the player needs to walk on the terrain.
+    /// Load, center horizontally + ground-snap on Y, apply an earthy
+    /// Toon material, and generate collision shapes so the RootView
+    /// can raycast against the surface to anchor the player.
+    ///
+    /// The Phase 3 first playtest revealed two issues the loader must
+    /// handle, not push onto callers:
+    ///   1. The Blender pipeline strips materials (for bundle size);
+    ///      loading a stripped USDZ renders in RealityKit's default
+    ///      magenta, which looks broken. We apply a mud-olive tint via
+    ///      `ToonMaterialFactory` here so every caller gets a lit
+    ///      terrain automatically.
+    ///   2. The bottom-snap keeps terrain's lowest valley vertex at
+    ///      Y = 0, which puts the hilltop hundreds of metres above
+    ///      origin — the player spawn at (0, 0, 0) lands underground.
+    ///      We ship `CollisionComponent` here so RootView can raycast
+    ///      downward from above the terrain and move the player to
+    ///      the actual surface.
     public func load() async throws -> Entity {
         let basename = Self.defaultBasename
         guard
@@ -116,7 +128,136 @@ public final class TerrainLoader {
         // Y = 0 reference plane. The alignment caveat is documented in
         // the file header.
         EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
+
+        // Mud-olive base colour for "dirt with a hint of grass". Chose
+        // a muted tone so it reads as "ground" rather than competing
+        // with the building tiles' warm palette. Hand-tuned on real-
+        // device preview; stored `internal` so tests can pin the
+        // shade.
+        Self.applyTerrainMaterial(
+            toDescendantsOf: entity,
+            baseColor: Self.defaultTerrainColor
+        )
+
+        // Collision shapes generated from the mesh. Synchronous and
+        // can take a beat on 30 K tris, but happens once at load time
+        // — acceptable for an app where terrain doesn't stream.
+        // `recursive: true` handles any nested mesh parts the
+        // decimator produces.
+        entity.generateCollisionShapes(recursive: true)
+
         entity.name = "PlateauTerrain_\(basename)"
         return entity
+    }
+
+    // MARK: - Material
+
+    /// The default earthy tint for terrain. Mud-olive: warm enough to
+    /// not feel cold on a sunny day, dark enough to sit visually
+    /// *under* the building palette. Exposed `internal` so tests can
+    /// pin the value without reading through the loader.
+    internal static let defaultTerrainColor = SIMD3<Float>(0.42, 0.48, 0.30)
+
+    // MARK: - Height sampling
+
+    /// Sample the terrain's Y in world space at a given X / Z position
+    /// by finding the nearest vertex in any `ModelComponent` under
+    /// `root`. Returns `nil` if no vertices could be read (e.g. the
+    /// entity has no mesh geometry yet).
+    ///
+    /// Why not `Scene.raycast`? The make closure runs before the
+    /// physics/collision world has ticked, so raycasting there
+    /// reliably returns empty. Mesh sampling is synchronous,
+    /// deterministic, and works the moment the entity is loaded.
+    ///
+    /// Precision note: "nearest vertex" is an O(vertices) sweep over
+    /// a ~90 K vertex mesh. That's cheap at load time (one-shot) and
+    /// precise enough for a spawn anchor — we only need Y to within a
+    /// few metres of ground so the player doesn't fall through.
+    ///
+    /// Exposed `public` so callers in other modules (RootView) can
+    /// pick a spawn Y without reopening `TerrainLoader`. `@MainActor`
+    /// because `Entity.transformMatrix(relativeTo:)` and descendants
+    /// traversal touch main-isolated state.
+    @MainActor
+    public static func sampleTerrainY(
+        in root: Entity,
+        atWorldXZ target: SIMD2<Float>
+    ) -> Float? {
+        var bestY: Float?
+        var bestDistSq: Float = .infinity
+
+        var stack: [Entity] = [root]
+        while let current = stack.popLast() {
+            stack.append(contentsOf: current.children)
+            guard
+                let modelComponent = current.components[ModelComponent.self]
+            else { continue }
+
+            // World-space transform for this entity's local vertices.
+            let toWorld = current.transformMatrix(relativeTo: nil)
+
+            for mdl in modelComponent.mesh.contents.models {
+                for part in mdl.parts {
+                    // `part.positions` is non-optional on iOS 18 — every
+                    // mesh part has a position buffer, even if empty.
+                    let positions = part.positions
+                    for local in positions {
+                        let world4 = toWorld * SIMD4<Float>(
+                            local.x, local.y, local.z, 1
+                        )
+                        let dx = world4.x - target.x
+                        let dz = world4.z - target.y
+                        let distSq = dx * dx + dz * dz
+                        if distSq < bestDistSq {
+                            bestDistSq = distSq
+                            bestY = world4.y
+                        }
+                    }
+                }
+            }
+        }
+        return bestY
+    }
+
+    // MARK: - Material
+
+    /// Walk the entity tree and replace every `ModelComponent`'s
+    /// materials with the Toon-shaded terrain material. Mirrors
+    /// `PlateauEnvironmentLoader.applyToonMaterial` — kept here (not
+    /// reused) because terrain uses a single colour rather than a
+    /// per-tile palette, and forcing it through the building loader's
+    /// API would imply a `PlateauTile` the terrain doesn't have.
+    ///
+    /// Exposed `internal` so tests can exercise the material swap on a
+    /// synthetic entity without going through `load()`.
+    @MainActor
+    internal static func applyTerrainMaterial(
+        toDescendantsOf root: Entity,
+        baseColor: SIMD3<Float>
+    ) {
+        // Harder cel variant (Phase 3): terrain reads as clearly
+        // cartoonish rather than a realistic-with-toon-tint ground.
+        // See `ToonMaterialFactory.makeHardCelMaterial` header for the
+        // difference vs. the soft `makeLayerMaterial`.
+        let material = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: baseColor
+        )
+
+        // Explicit iterative walk — mirrors PlateauEnvironmentLoader
+        // to keep the visual contract identical between buildings and
+        // terrain (same strength, same factory).
+        var stack: [Entity] = [root]
+        while let current = stack.popLast() {
+            if var modelComponent = current.components[ModelComponent.self] {
+                let count = max(1, modelComponent.materials.count)
+                modelComponent.materials = Array(
+                    repeating: material,
+                    count: count
+                )
+                current.components.set(modelComponent)
+            }
+            stack.append(contentsOf: current.children)
+        }
     }
 }

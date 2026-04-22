@@ -305,9 +305,27 @@ public struct RootView: View {
             //     nusamai strips real-world origins, so we bottom-snap
             //     both and accept some visual drift. See
             //     `TerrainLoader` header for details.
+            //
+            //     We also sample the terrain's Y at the spawn XZ so the
+            //     player (added in step 4) can start on the surface
+            //     rather than buried under the Aobayama hilltop. Sampled
+            //     value is passed to step 4 via the local `spawnY` and
+            //     persisted in sceneRefs for future relocation needs.
+            var spawnY: Float = 0
             do {
                 let terrain = try await terrainLoader.load()
                 content.add(terrain)
+                if let y = TerrainLoader.sampleTerrainY(
+                    in: terrain,
+                    atWorldXZ: SIMD2<Float>(0, 0)
+                ) {
+                    // Add a small margin so the spawn isn't exactly on
+                    // the surface (camera would clip). 0.1 m is plenty
+                    // given the Toon-shaded terrain has no sub-metre
+                    // detail after decimation.
+                    spawnY = y + 0.1
+                    print("[SDG-Lab] terrain Y at spawn = \(y)")
+                }
             } catch {
                 print("[SDG-Lab] TerrainLoader failed: \(error)")
             }
@@ -376,7 +394,13 @@ public struct RootView: View {
                 capsule.addChild(camera)
                 body = capsule
             }
-            body.position = SIMD3<Float>(0, 0, 0)
+            // Anchor the player on top of the DEM-sampled spawn Y so
+            // the character appears on the Aobayama hilltop surface
+            // rather than hundreds of metres underground (which is
+            // what spawning at Y=0 would produce now that we have real
+            // terrain). `spawnY` is 0 when terrain failed to load, so
+            // the flat-plane fallback also still works.
+            body.position = SIMD3<Float>(0, spawnY, 0)
             content.add(body)
             sceneRefs.playerEntity = body
             playerStore.attach(playerEntity: body)

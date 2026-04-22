@@ -213,9 +213,18 @@ public final class PlateauEnvironmentLoader {
         toDescendantsOf root: Entity,
         baseColor: SIMD3<Float>
     ) {
-        let material = ToonMaterialFactory.makeLayerMaterial(
-            baseColor: baseColor,
-            strength: 0.7
+        // Phase 3 Toon upgrade: buildings now use the "harder cel"
+        // variant which pushes emissive higher and removes residual
+        // specular, so the PLATEAU facades read as flat cartoon
+        // volumes rather than realistic-lit buildings with a tint.
+        // Geology layers inside the outcrop keep the softer
+        // `makeLayerMaterial` so the drillable rock stays visually
+        // distinct from the surrounding city.
+        //
+        // True NdotL step-ramp (ADR-0004 scheme A) is still follow-up
+        // work pending Reality Composer Pro authoring.
+        let material = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: baseColor
         )
 
         // Iterative depth-first walk. Recursing into the built-in
