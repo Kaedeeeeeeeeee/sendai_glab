@@ -166,19 +166,46 @@
 
 **合計 394 tests / 0 failure**(SDGCore 22 + SDGGameplay 303 + SDGPlatform 20 + SDGUI 49)
 
-### Phase 3 候補(未着手、優先順位は f.shera と決めていない)
+### Phase 3 Quest Chain — 完了(2026-04-22、PR #10)
 
-**次の着手**(2026-04-22 Audio fix 直後に選択):
-→ Quest 自動 chain + DialogueFinished → objective 自動完了ブリッジ
-   (branch `feat/phase-3-quest-chain`、Phase 2 Beta の半実装を完成)
+- [x] `StoryProgressionMap.builtIn`:10 条 dialogue→objective + 12 条 quest→successor
+- [x] `StoryProgressionBridge`:DialogueFinished + QuestCompleted 購読 → QuestStore.intent
+- [x] RootView:旧 hand-wired dialogueFinishedToken 撤去、bootstrap で q.lab.intro
+      を 1 回 auto-start(冪等)
+- [x] 14 tests 追加(map 整合性 6 + bridge 挙動 8)
 
-残り候補(次回以降):
-1. PLATEAU DEM(terrain)統合 — 浮遊建物の根本修正
-2. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
-3. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
-4. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
-5. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
-6. 真の薄片写真(f.shera 研究室素材)
+**合計 408 tests / 0 failure**(SDGCore 22 + SDGGameplay 317 + SDGPlatform 20 + SDGUI 49)
+
+### Phase 3 PLATEAU DEM Terrain — 完了(2026-04-22、branch `feat/phase-3-plateau-dem`)
+
+**浮遊建物の改善**。真機未テスト(次回 f.shera 確認予定)。
+
+- [x] nusamai DEM module → glTF 変換(EPSG:6677, 1 tile 574036_05 / 5×5km)
+- [x] Blender 過激 decimation(1.7M → 30K 三角形)+ bmesh orphan-vertex purge
+      (修正前:41 MB for 15K tris → 修正後:2.1 MB for 30K tris)
+- [x] `Tools/plateau-pipeline/dem_to_terrain_usdz.py` + `convert_terrain_dem.sh`
+- [x] `Resources/Environment/Terrain_Sendai_574036_05.usdz`(2.1 MB、LFS)
+- [x] `TerrainLoader.swift`:EnvironmentCenterer で bottom-snap(既存建物と同じ約束事)
+- [x] RootView:ground plane → terrain → buildings の順で描画
+- [x] 3 tests 追加(初期化・resource-not-found・basename 整合性)
+
+**合計 411 tests / 0 failure**(SDGGameplay 320)
+
+**既知の限界**(follow-up PR で改善):
+- nusamai は各 GLB を自分の AABB 中心に置き、real-world origin を捨てる。
+  ので terrain ↔ building 間の完璧な座標整合は不能。今は両方 bottom-snap で
+  「Y=0 = 最低点」という合意で妥協。局所的な浮き沈み残る可能性あり。
+- 真機チェック → 必要なら Y offset を調整、または CityGML envelope 解析で
+  real-world 座標を復元するパイプ追加。
+
+### Phase 3 残り候補
+
+1. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
+2. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
+3. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
+4. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
+5. 真の薄片写真(f.shera 研究室素材)
+6. DEM alignment の完全解決(CityGML envelope 解析で real-world origin 復元)
 
 ## よく参照するパス
 

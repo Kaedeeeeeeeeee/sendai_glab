@@ -126,6 +126,11 @@ public struct RootView: View {
     /// Reused across view rebuilds; cheap to construct.
     @State private var environmentLoader = PlateauEnvironmentLoader()
 
+    /// Loads the PLATEAU DEM terrain USDZ so the scene has real elevation
+    /// under the 5 building tiles. Phase 3 ships one terrain tile that
+    /// covers the corridor's NE quadrant (2nd-mesh 574036, sub _05).
+    @State private var terrainLoader = TerrainLoader()
+
     /// Loads `Character_*.usdz` from the app bundle and attaches Player
     /// components + camera.
     @State private var characterLoader = CharacterLoader()
@@ -292,10 +297,25 @@ public struct RootView: View {
             ground.position = SIMD3<Float>(1250, -0.02, 500)   // corridor mid-point
             content.add(ground)
 
-            // 2. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
-            //    materials are applied inside the loader. If any tile
-            //    is missing, the loader throws and we proceed without
-            //    cityscape so the app still launches.
+            // 2a. PLATEAU DEM terrain. Loaded BEFORE the building
+            //     tiles so it renders underneath them in the implicit
+            //     draw order. Failure (missing USDZ) is soft: we log
+            //     and fall back to the flat ground plane from step 1.
+            //     Phase 3 note: alignment with buildings is approximate —
+            //     nusamai strips real-world origins, so we bottom-snap
+            //     both and accept some visual drift. See
+            //     `TerrainLoader` header for details.
+            do {
+                let terrain = try await terrainLoader.load()
+                content.add(terrain)
+            } catch {
+                print("[SDG-Lab] TerrainLoader failed: \(error)")
+            }
+
+            // 2b. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
+            //     materials are applied inside the loader. If any tile
+            //     is missing, the loader throws and we proceed without
+            //     cityscape so the app still launches.
             do {
                 let corridor = try await environmentLoader.loadDefaultCorridor()
                 content.add(corridor)
