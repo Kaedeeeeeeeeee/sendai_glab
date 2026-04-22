@@ -23,6 +23,7 @@ SDG-Lab で使用している外部データ・資産・ツールの帰属リス
 | ソース | 用途 | ライセンス |
 |---|---|---|
 | [Suno](https://suno.com) または [Udio](https://udio.com) | BGM | Pro plan(商用可) |
+| [Kenney (kenney.nl)](https://kenney.nl/) | Placeholder SFX(Phase 2 起步 — UI / 掘削 / 足音 / フィードバック) | CC0 — 帰属は不要だが礼儀として保留 |
 
 ## フォント
 
