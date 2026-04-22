@@ -1,0 +1,139 @@
+{
+    "scene": "Quest 3.4 - Return to G-Lab",
+    "background": "laboratory",
+    "bgm": "lab_theme",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "気づけばG-Labの転送室に帰った。息が荒いまま、主人公はサンプルを机に置いた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_4.line01"
+        },
+        {
+            "speaker": "主人公",
+            "text": "はぁ……はぁ……戻った……。これ……が、採ってきた薄片だよ。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line02"
+        },
+        {
+            "speaker": "みなと",
+            "text": "{name}ちゃん！大丈夫なの！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_4.line03"
+        },
+        {
+            "speaker": "主人公",
+            "text": "…",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line04"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line05"
+        },
+        {
+            "speaker": "主人公",
+            "text": "…………",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line06"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……怖くない先の！！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line07"
+        },
+        {
+            "speaker": "主人公",
+            "text": "一日中2回こんなに大きい地震遭われたなんで想像したこともないよ！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line08"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "確かに大変だった……でもこの任務を実行したのが{name}てよかった。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line09"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "フェーズシフターを使えない人にさせたら、その結果想像したくないね。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line10"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "こんな危険な任務も無事に終えることができた、偉いぞ",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line11"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "後はこのサンプルをちょっと研究しようか。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line12"
+        },
+        {
+            "speaker": "narration",
+            "text": "研究室のライトが点灯する映像に切り替わる。モニター越しに、顕微鏡の中の世界が広がる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_4.line13"
+        },
+        {
+            "speaker": "みなと",
+            "text": "わ、すごい！粒が細かく潰れてる…これ、力がかかった跡？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_4.line14"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そうだね。ただ、気になるのは“いつ”その力がかかったか。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line15"
+        },
+        {
+            "speaker": "主人公",
+            "text": "地震のときじゃないんですか？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line16"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "かもしれない。でも、この潰れ方は少し“新しすぎる”気がする。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line17"
+        },
+        {
+            "speaker": "みなと",
+            "text": "え、新しすぎるって…どういう意味？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_4.line18"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "地震は一度で終わったと思われているけど、もし地下のどこかがまだ動いているとしたら…。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line19"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……じゃあ、次に調べるのは地下、ですね？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_4.line20"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "その通り。ボーリング調査の準備をしよう。深く掘れば、“今”の地面の動きを知ることができるかもしれない。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_4.line21"
+        },
+        {
+            "speaker": "narration",
+            "text": "通信が切れ、山風の音だけが残った。主人公は小さく息を吐き、遠くの街を見下ろした。あの静けさの下で、地球はまだ何かを動かしているような気がした。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_4.line22"
+        }
+    ]
+}

@@ -1,0 +1,283 @@
+{
+    "scene": "Quest 2.1 - Dr. Kaede",
+    "background": "laboratory",
+    "bgm": "lab_theme",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "白い部屋の中、無数のモニターが青く光っている。機械の低い唸りが、静寂の中に響いていた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line01"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "落ち着いた？　ここはG-Lab――地質学と地殻変動を研究する施設だ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line02"
+        },
+        {
+            "speaker": "みなと",
+            "text": "研究所だって言ってたけど……もう帰っていいのかな。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest2_1.line03"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そうね。帰す前に、ひとつだけ見てほしい映像があるの。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line04"
+        },
+        {
+            "speaker": "narration",
+            "text": "Kaedeがリモコンを押すと、壁面のモニターにニュース映像が映し出された。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line05"
+        },
+        {
+            "speaker": "news",
+            "text": "『速報です。仙台市中心部で観測された地震により、多数の建物が倒壊。現在も余震が続いています――』",
+            "speakerKey": "story.speaker.news",
+            "textKey": "story.quest2_1.line06"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……そんな……これ、私たちの街……？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest2_1.line07"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……家、大丈夫かな……母さん……！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line08"
+        },
+        {
+            "speaker": "narration",
+            "text": "主人公はポケットからスマホを取り出す。だが、その瞬間――スマホが震えた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line09"
+        },
+        {
+            "speaker": "主人公",
+            "text": "え……！？　母さんから……！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line10"
+        },
+        {
+            "speaker": "sfx",
+            "text": "phone_call",
+            "speakerKey": "story.speaker.sfx",
+            "textKey": "story.quest2_1.line11"
+        },
+        {
+            "speaker": "母",
+            "text": "もしもし！？　あんた無事なの！？　ニュース見て心配で……！",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line12"
+        },
+        {
+            "speaker": "主人公",
+            "text": "うん！　俺も無事！　今、避難してて……！　母さんの方こそ！？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line13"
+        },
+        {
+            "speaker": "母",
+            "text": "家は少し壊れたけど、なんとか大丈夫。ほんとによかった……！",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line14"
+        },
+        {
+            "speaker": "narration",
+            "text": "安堵の笑みが浮かぶ。しばしの沈黙のあと、母の声が柔らかくなった。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line15"
+        },
+        {
+            "speaker": "母",
+            "text": "すぐ帰っておいで。今どこにいるの？",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line16"
+        },
+        {
+            "speaker": "narration",
+            "text": "主人公が口を開こうとした瞬間、Kaedeが静かに歩み寄り、スマホを手に取った。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line17"
+        },
+        {
+            "speaker": "主人公",
+            "text": "えっ、ちょ、Kaedeさん！？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line18"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "――もしもし、失礼します。こちら、G-Labの研究員・Kaedeと申します。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line19"
+        },
+        {
+            "speaker": "母",
+            "text": "え？　あ、はい……？",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line20"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "実は、お子さんが先ほどの地震の際に、特殊な反応を示しました。私たちはその原因を調べるため、短期間の協力をお願いしたいのです。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line21"
+        },
+        {
+            "speaker": "母",
+            "text": "えっ、そんな……中学生の子に研究を……？",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line22"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "もちろん安全な環境で行います。今後の地震防止にもつながる可能性があります。もし彼の“感覚”が地殻変動と関係しているなら、命を救えるかもしれません。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line23"
+        },
+        {
+            "speaker": "narration",
+            "text": "Kaedeの声は落ち着いていたが、その奥に切実な熱があった。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line24"
+        },
+        {
+            "speaker": "母",
+            "text": "……そんな大事なことなら……でも、本当に危険じゃないんですね？",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line25"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ええ、約束します。食事も宿泊もこちらで責任を持って管理します。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line26"
+        },
+        {
+            "speaker": "narration",
+            "text": "短い沈黙のあと、母のため息が聞こえた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line27"
+        },
+        {
+            "speaker": "母",
+            "text": "……わかりました。でも、ちゃんと休ませてあげてくださいね。",
+            "speakerKey": "story.speaker.mother",
+            "textKey": "story.quest2_1.line28"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ありがとうございます。責任をもってお預かりします。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line29"
+        },
+        {
+            "speaker": "narration",
+            "text": "Kaedeがスマホを主人公に返す。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line30"
+        },
+        {
+            "speaker": "主人公",
+            "text": "…………えっ。ちょっと、何が起きたんですか。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line31"
+        },
+        {
+            "speaker": "みなと",
+            "text": "お母さん、話が早い……（笑）",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest2_1.line32"
+        },
+        {
+            "speaker": "主人公",
+            "text": "うちの親、意外とノリいいな！？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line33"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ふふ、助かりました。ではこれから、よろしくね。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line34"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そして、二人に今後のやることを説明するする。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line35"
+        },
+        {
+            "speaker": "narration",
+            "text": "Kaedeは二人に装置を差し出した。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest2_1.line36"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "これは“地質ハンマー”。サンプル採集用のツールよ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line37"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そして――これが“フェーズシフター”。君の能力を安定化させる。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line38"
+        },
+        {
+            "speaker": "主人公",
+            "text": "フェーズシフター……？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line39"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "要は、君の空間移動を制御する装置。これを使えば、G-Labと外界の行き来が安全にできるわ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line40"
+        },
+        {
+            "speaker": "主人公",
+            "text": "って、つまり私たち今後本当に地質研究活動をやるか...。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line41"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "もちろん、みんなを助けられる仕事だよ……もしかしてできない？。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line42"
+        },
+        {
+            "speaker": "主人公",
+            "text": "は？そんなわけないだろ！。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest2_1.line43"
+        },
+        {
+            "speaker": "みなと",
+            "text": "うわ、Kaedeさんの挑発に弱いね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest2_1.line44"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ふふ、やる気が出たならそれでいいわ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line45"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "じゃ初めての任務が始めるわ、地質ハンマーで薄片サンプルを採集しよう。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest2_1.line46"
+        }
+    ]
+}

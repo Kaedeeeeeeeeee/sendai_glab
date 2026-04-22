@@ -1,0 +1,25 @@
+{
+    "scene": "Quest 3.2 - Briefing Before Field",
+    "background": "laboratory",
+    "bgm": "lab_theme_soft",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "再び目を開ける時、{name}はもう野外にいた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_2.line01"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "無事に到着したね、じゃ採集任務を始めよ",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_2.line02"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "地面上の指示を見えるか、それを従って、目的地でサンプルを採集しよう",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_2.line03"
+        }
+    ]
+}

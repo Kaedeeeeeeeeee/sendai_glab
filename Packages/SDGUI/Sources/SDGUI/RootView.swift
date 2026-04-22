@@ -138,6 +138,31 @@ public struct RootView: View {
     /// DrillFailed → .feedbackFailure). Started in `bootstrap()`.
     @State private var audioBridge: AudioEventBridge?
 
+    // MARK: - Phase 2 Beta services
+
+    /// Tracks all 13 quests' status; drives the QuestTracker HUD.
+    @State private var questStore: QuestStore
+
+    /// Plays story sequences from `Resources/Story/quest*.json`.
+    /// Currently the chapter-1 intro only; later chapters wire later.
+    @State private var dialogueStore: DialogueStore
+
+    /// Workbench / microscope state. Closed by default; opened from
+    /// the DebugActionsBar.
+    @State private var workbenchStore: WorkbenchStore
+
+    /// Vehicles (drones, drill cars). RootView is a subscriber to
+    /// `VehicleSummoned` so it can spawn the matching scene Entity.
+    @State private var vehicleStore: VehicleStore
+
+    /// True while the workbench full-screen cover is presented.
+    @State private var showWorkbench: Bool = false
+
+    /// Subscription tokens for the Phase 2 Beta event handlers, all
+    /// torn down in `teardown()`.
+    @State private var vehicleSummonedToken: SubscriptionToken?
+    @State private var dialogueFinishedToken: SubscriptionToken?
+
     /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
     /// device width on iPad landscape; a 1000-pt drag rotating by one
     /// radian (≈57°) feels right on first play.
@@ -152,6 +177,10 @@ public struct RootView: View {
         _playerStore = State(initialValue: PlayerControlStore(eventBus: placeholder))
         _drillingStore = State(initialValue: DrillingStore(eventBus: placeholder))
         _inventoryStore = State(initialValue: InventoryStore(eventBus: placeholder))
+        _questStore = State(initialValue: QuestStore(eventBus: placeholder))
+        _dialogueStore = State(initialValue: DialogueStore(eventBus: placeholder))
+        _workbenchStore = State(initialValue: WorkbenchStore(eventBus: placeholder))
+        _vehicleStore = State(initialValue: VehicleStore(eventBus: placeholder))
     }
 
     public var body: some View {
@@ -165,6 +194,32 @@ public struct RootView: View {
                 onDrillTapped: handleDrillTap,
                 onInventoryTapped: { showInventory = true }
             )
+
+            // Phase 2 Beta debug actions: opens workbench, summons a
+            // drone, plays story dialogue. Will be replaced by in-world
+            // interactions in Phase 3.
+            DebugActionsBar(
+                onWorkbenchTapped: handleWorkbenchTap,
+                onDroneTapped: handleDroneSummonTap,
+                onStoryTapped: handleStoryStartTap
+            )
+
+            // Top-left tracker showing the active quest.
+            VStack {
+                HStack {
+                    QuestTrackerView(questStore: questStore)
+                        .padding(.top, 40)
+                        .padding(.leading, 40)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .allowsHitTesting(false)
+
+            // Bottom-center dialogue card. Tap-to-advance lives in
+            // the overlay itself; we want it to intercept those taps
+            // *above* the gameplay layer, hence no allowsHitTesting(false).
+            DialogueOverlay(dialogueStore: dialogueStore)
         }
         .ignoresSafeArea()
         // `fullScreenCover` is iOS-only; macOS falls back to `sheet`
@@ -176,11 +231,25 @@ public struct RootView: View {
                 onClose: { showInventory = false }
             )
         }
+        .fullScreenCover(isPresented: $showWorkbench) {
+            WorkbenchView(
+                workbenchStore: workbenchStore,
+                inventoryStore: inventoryStore,
+                onClose: handleWorkbenchClose
+            )
+        }
         #else
         .sheet(isPresented: $showInventory) {
             InventoryView(
                 inventoryStore: inventoryStore,
                 onClose: { showInventory = false }
+            )
+        }
+        .sheet(isPresented: $showWorkbench) {
+            WorkbenchView(
+                workbenchStore: workbenchStore,
+                inventoryStore: inventoryStore,
+                onClose: handleWorkbenchClose
             )
         }
         #endif
@@ -319,6 +388,81 @@ public struct RootView: View {
         }
     }
 
+    // MARK: - Phase 2 Beta debug actions
+
+    /// 🔬 button → open the workbench / microscope full-screen cover.
+    private func handleWorkbenchTap() {
+        showWorkbench = true
+        let store = workbenchStore
+        Task { @MainActor in
+            await store.intent(.openWorkbench)
+        }
+    }
+
+    /// Cover dismissal → tell the store to close so its event chain
+    /// matches the visible UI state.
+    private func handleWorkbenchClose() {
+        showWorkbench = false
+        let store = workbenchStore
+        Task { @MainActor in
+            await store.intent(.closeWorkbench)
+        }
+    }
+
+    /// 🚁 button → summon a drone next to the player. The actual
+    /// scene-side Entity is created by the `VehicleSummoned`
+    /// subscriber in `bootstrap()` — the Store only owns the data.
+    private func handleDroneSummonTap() {
+        guard let player = sceneRefs.playerEntity else { return }
+        let playerPos = player.position(relativeTo: nil)
+        let spawn = SIMD3<Float>(
+            playerPos.x + 1.5,    // 1.5 m right of player
+            playerPos.y + 0.5,    // 0.5 m off ground so propellers clear
+            playerPos.z
+        )
+        let store = vehicleStore
+        Task { @MainActor in
+            await store.intent(.summon(.drone, position: spawn))
+        }
+    }
+
+    /// 📖 button → load the chapter-1 intro and have the dialogue
+    /// store play it. Phase 3 will trigger this automatically from
+    /// quest state instead of a manual button.
+    private func handleStoryStartTap() {
+        let store = dialogueStore
+        Task { @MainActor in
+            do {
+                let sequence = try StoryLoader.load(basename: "quest1.1", in: .main)
+                await store.intent(.play(sequence: sequence))
+            } catch {
+                print("[SDG-Lab] StoryLoader failed for quest1.1: \(error)")
+            }
+        }
+    }
+
+    /// Subscriber for `VehicleSummoned` — builds the placeholder mesh
+    /// with the right `vehicleId` and registers it with the Store so
+    /// future `.pilot` calls can find it.
+    @MainActor
+    private func handleVehicleSummoned(_ event: VehicleSummoned) {
+        let entity: Entity
+        switch event.vehicleType {
+        case .drone:
+            entity = VehicleMeshFactory.makeDrone(vehicleId: event.vehicleId)
+        case .drillCar:
+            entity = VehicleMeshFactory.makeDrillCar(vehicleId: event.vehicleId)
+        }
+        entity.position = event.position
+        // The simplest place to anchor a free-floating vehicle is the
+        // sample container — it's a plain Entity already in the scene
+        // tree as a sibling of the player and outcrop.
+        if let container = sceneRefs.sampleContainer {
+            container.addChild(entity)
+        }
+        vehicleStore.register(entity: entity, for: event.vehicleId)
+    }
+
     // MARK: - Bootstrap
 
     /// Runs once on first `.task`. Swaps the placeholder stores for
@@ -366,6 +510,33 @@ public struct RootView: View {
         let bridge = AudioEventBridge(eventBus: bus, audioService: audioService)
         await bridge.start()
         audioBridge = bridge
+
+        // Phase 2 Beta stores: rebind to real bus + start subscriptions.
+        questStore = QuestStore(eventBus: bus)
+        dialogueStore = DialogueStore(eventBus: bus)
+        workbenchStore = WorkbenchStore(eventBus: bus)
+        vehicleStore = VehicleStore(eventBus: bus)
+        await questStore.start()
+
+        // Subscribe to VehicleSummoned so we materialise the scene
+        // entity. The Store only knows snapshots; we own the meshes.
+        vehicleSummonedToken = await bus.subscribe(VehicleSummoned.self) { event in
+            await handleVehicleSummoned(event)
+        }
+
+        // When the chapter intro dialogue finishes, kick off the
+        // first quest so the QuestTracker becomes visible. Phase 3
+        // will replace this with a proper QuestCoordinator that
+        // chains all 13 quests.
+        dialogueFinishedToken = await bus.subscribe(DialogueFinished.self) { event in
+            // Only the chapter-1 intro should trigger the auto-start;
+            // ignore any other dialogue (e.g. mid-game NPC banter).
+            guard event.sequenceId == "quest1.1" else { return }
+            let store = questStore
+            Task { @MainActor in
+                await store.intent(.start(questId: "q.lab.intro"))
+            }
+        }
 
         // Developer-facing debug: log every move intent. Real HUD
         // subscribers land in Phase 2.
@@ -442,13 +613,23 @@ public struct RootView: View {
             Task { await bus.cancel(token) }
             moveIntentDebugToken = nil
         }
+        if let token = vehicleSummonedToken {
+            Task { await bus.cancel(token) }
+            vehicleSummonedToken = nil
+        }
+        if let token = dialogueFinishedToken {
+            Task { await bus.cancel(token) }
+            dialogueFinishedToken = nil
+        }
         let ds = drillingStore
         let inv = inventoryStore
         let orch = orchestrator
         let bridge = audioBridge
+        let qs = questStore
         Task {
             await ds.stop()
             await inv.stop()
+            await qs.stop()
             if let orch { await orch.stop() }
             if let bridge { await bridge.stop() }
         }

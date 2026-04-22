@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "mapping": {
+    "aobayama.topsoil": [
+      {
+        "id": "topsoil_placeholder",
+        "captionKey": "thinsection.topsoil.caption",
+        "creditKey": "thinsection.placeholder.credit"
+      }
+    ],
+    "aobayama.aobayamafm.upper": [
+      {
+        "id": "sedimentary_aobayama_upper",
+        "captionKey": "thinsection.aobayama.upper.caption",
+        "creditKey": "thinsection.placeholder.credit"
+      }
+    ],
+    "aobayama.aobayamafm.lower": [
+      {
+        "id": "sedimentary_aobayama_lower",
+        "captionKey": "thinsection.aobayama.lower.caption",
+        "creditKey": "thinsection.placeholder.credit"
+      }
+    ],
+    "aobayama.basement": [
+      {
+        "id": "metamorphic_basement",
+        "captionKey": "thinsection.basement.caption",
+        "creditKey": "thinsection.placeholder.credit"
+      }
+    ],
+    "aobayama.tuff": [
+      {
+        "id": "tuff_placeholder",
+        "captionKey": "thinsection.tuff.caption",
+        "creditKey": "thinsection.placeholder.credit"
+      }
+    ]
+  }
+}

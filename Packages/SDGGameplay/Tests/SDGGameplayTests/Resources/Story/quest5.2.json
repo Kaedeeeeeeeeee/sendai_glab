@@ -1,0 +1,181 @@
+{
+    "scene": "Quest 5.2 - Field Deployment",
+    "background": "field",
+    "bgm": "field_theme",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "ドローン起動シークエンス、開始。十数体の小型ドローンが青い光を点滅させながら、ゆっくりと浮かび上がった。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line01"
+        },
+        {
+            "speaker": "みなと",
+            "text": "わぁ……すごい。まるで群れで飛ぶ蛍みたい……。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line02"
+        },
+        {
+            "speaker": "主人公",
+            "text": "ほんとだ。これ全部、俺たちが操縦するのか……ちょっと緊張してきたな。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_2.line03"
+        },
+        {
+            "speaker": "みなと",
+            "text": "ふふ、指揮官デビューだね。落とさないようにね？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line04"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "冗談はそのくらいにして。ドローン群、地中レーダーシステムのリンクを開始する。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line05"
+        },
+        {
+            "speaker": "narration",
+            "text": "モニターに十数本の通信ラインが走り、ドローンが次々と地面の裂け目へと滑り込んでいく。青い光がひとつ、またひとつ、地中に消えていった――。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line06"
+        },
+        {
+            "speaker": "みなと",
+            "text": "まずはドローン1から8、信号確認。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line07"
+        },
+        {
+            "speaker": "みなと",
+            "text": "深度10メートル……15……あれ、9番がノイズ出してる！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line08"
+        },
+        {
+            "speaker": "主人公",
+            "text": "映像、出てます！……これ、なに？　赤い線みたいなのが地面の下を走ってる。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_2.line09"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "……それが断層面だ。だけど、想定よりずっと浅い。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line10"
+        },
+        {
+            "speaker": "みなと",
+            "text": "浅いってことは……都市の地下施設と近いってこと！？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line11"
+        },
+        {
+            "speaker": "narration",
+            "text": "モニターの映像が切り替わる。仙台の地図が投影され、断層の線がゆっくりと街の下を横切っていく。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line12"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……これ……仙台駅の真下まで伸びてる。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_2.line13"
+        },
+        {
+            "speaker": "みなと",
+            "text": "しかも線が途中で枝分かれしてるよ！二本？いや、三本？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line14"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "……分岐断層か。これほど広範囲に広がっているとは……。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line15"
+        },
+        {
+            "speaker": "narration",
+            "text": "モニターの波形が一瞬跳ね上がった。赤い警告が点灯する。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line16"
+        },
+        {
+            "speaker": "みなと",
+            "text": "なにこれ！？波が動いてる！……リアルタイムで！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line17"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "まさか……まだ滑っているのか！？",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line18"
+        },
+        {
+            "speaker": "主人公",
+            "text": "待って……先生、これ、地震計の信号に似てます。しかも周期が短い。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_2.line19"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "周期が短い……つまり、応力が“蓄積”している。これは……前兆じゃない。次の震動が“始まっている”。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line20"
+        },
+        {
+            "speaker": "narration",
+            "text": "モニターの地図に、仙台全域を覆うように赤い線が広がった。その中心に、“G-Lab”の位置が点滅する。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line21"
+        },
+        {
+            "speaker": "みなと",
+            "text": "うそ……私たち、断層の真上にいるの！？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line22"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "……G-Labだけじゃない。仙台市の主要エリア全体が、いま動こうとしている断層の上にある。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line23"
+        },
+        {
+            "speaker": "主人公",
+            "text": "じゃあ……これから来るのは、本震……。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_2.line24"
+        },
+        {
+            "speaker": "narration",
+            "text": "雷鳴が鳴り響いた。窓の外の雨が急に強くなる。ラボの明かりが一瞬、落ちた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line25"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "……みんな、聞いてくれ。これ以上は隠せない。政府にも、そして市民にも知らせる必要がある。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_2.line26"
+        },
+        {
+            "speaker": "みなと",
+            "text": "そうですね、これは、みんなの命を救う研究だよ！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_2.line27"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……わかりました。次の任務は、“知らせること”。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_2.line28"
+        },
+        {
+            "speaker": "narration",
+            "text": "三人は無言で頷き合った。モニターには、まだ脈打つように光る赤い断層の線が残っていた。まるで地球が、ゆっくりと息をしているかのように。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_2.line29"
+        }
+    ]
+}

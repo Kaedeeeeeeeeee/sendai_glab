@@ -1,0 +1,159 @@
+{
+    "scene": "Quest 3.3 - Phase Shifter Field Arrival",
+    "background": "field",
+    "bgm": "field_theme",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "荒れ果てた地表に風が吹き抜ける。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line01"
+        },
+        {
+            "speaker": "narration",
+            "text": "{name}は小さな機材ケースを背負い、山のふもとの露頭に立っていた。通信端末のライトが点滅し、研究室とつながる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line02"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "こちらラボ。音声、映ってるか？風が強いみたいだね。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_3.line03"
+        },
+        {
+            "speaker": "主人公",
+            "text": "はい、聞こえてます。こっちはまだちょっと砂ぼこりが舞ってます。空も灰色で…地震のあとって感じです。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_3.line04"
+        },
+        {
+            "speaker": "みなと",
+            "text": "映像きたきた。うわ、泥だらけじゃん。長靴はいてきた？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_3.line05"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……はいたけど、もう半分沈みました。あー、これ洗うの大変だなあ。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_3.line06"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ほらほら。そこが震源に一番近い露頭だからね。サンプルを頼むよ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_3.line07"
+        },
+        {
+            "speaker": "narration",
+            "text": "{name}は地質ハンマーを取り出し、慎重に岩の表面を叩く。乾いた音が風の中に消える。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line08"
+        },
+        {
+            "speaker": "narration",
+            "text": "主人公はしゃがみ込み、岩の割れ目から慎重に破片を取り出した。小さなケースに入れながら、どこかでカラスの鳴き声が響く。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line09"
+        },
+        {
+            "speaker": "みなと",
+            "text": "おっ、きれいな層だね。粉っぽくなってるところがある。なんかお菓子のクッキーみたい。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_3.line10"
+        },
+        {
+            "speaker": "主人公",
+            "text": "地面スイーツか…。でも、手で触るとちょっと柔らかい。石のはずなのに。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_3.line11"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "それは興味深いね。地震で砕けた部分かもしれない。持ち帰って薄片にしてみよう。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_3.line12"
+        },
+        {
+            "speaker": "narration",
+            "text": "サンプルケースを閉じたその瞬間、地面が低く唸った。風が止み、空気が一気に重くなる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line13"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……今、揺れた？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_3.line14"
+        },
+        {
+            "speaker": "主人公",
+            "text": "いや……たぶん気のせい――",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_3.line15"
+        },
+        {
+            "speaker": "sfx",
+            "text": "rumble_start",
+            "speakerKey": "story.speaker.sfx",
+            "textKey": "story.quest3_3.line16"
+        },
+        {
+            "speaker": "narration",
+            "text": "言い終わる前に、大地が激しく震え出した。地鳴りが耳をつんざき、足元の岩が崩れる。",
+            "shake": true,
+            "shakeAmplitude": 0.6,
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line17"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "こちらラボ！　{name}、すぐ退避しなさい！　断層が動いてる！",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest3_3.line18"
+        },
+        {
+            "speaker": "主人公",
+            "text": "うわっ……！フェーズシフター……どこだっ……！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_3.line19"
+        },
+        {
+            "speaker": "narration",
+            "text": "主人公は揺れる地面に足を取られながら、腰の装置を必死に掴んだ。警報音が鳴り響き、空が割れるような轟音が響く。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line20"
+        },
+        {
+            "speaker": "みなと",
+            "text": "{name}ちゃん！早く！崖が――！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest3_3.line21"
+        },
+        {
+            "speaker": "sfx",
+            "text": "collapse_far",
+            "speakerKey": "story.speaker.sfx",
+            "textKey": "story.quest3_3.line22"
+        },
+        {
+            "speaker": "主人公",
+            "text": "くそっ、頼む……作動してくれ！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest3_3.line23"
+        },
+        {
+            "speaker": "sfx",
+            "text": "teleport_flash",
+            "speakerKey": "story.speaker.sfx",
+            "textKey": "story.quest3_3.line24"
+        },
+        {
+            "speaker": "narration",
+            "text": "白い閃光が主人公を包み込む。次の瞬間、耳をつんざく地鳴りの音が消え、静寂と機械音が戻った。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest3_3.line25"
+        }
+    ]
+}

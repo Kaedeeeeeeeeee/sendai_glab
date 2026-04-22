@@ -1,0 +1,79 @@
+{
+    "scene": "Quest 5.1 - Briefing with Kaede",
+    "background": "laboratory",
+    "bgm": "lab_theme",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "夜のG-Lab。窓の外では雨が降り出していた。雷が遠くで光り、モニターの青い光が室内を照らす。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest5_1.line01"
+        },
+        {
+            "speaker": "みなと",
+            "text": "新しいドローンの準備できたよ。これは普通のドローンじゃないよ。“地中レーダー群システム”、試作一号。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_1.line02"
+        },
+        {
+            "speaker": "主人公",
+            "text": "地中レーダー群？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_1.line03"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そう。小型ドローンを十数体、裂け目や水路に潜り込ませて、電磁波で地下構造を可視化する装置だ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_1.line04"
+        },
+        {
+            "speaker": "みなと",
+            "text": "つまり、地面の“中身”をスキャンできるってこと！まるで地球のCTスキャンだね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_1.line05"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……すごい。じゃあ本当に、断層の形が見える？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_1.line06"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "理論上はね。ただ、送る波が強すぎると地下の水分に反射されてノイズが出る。慎重に扱ってくれ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_1.line07"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "{name}くん、今回ドローンの操作をよろしく",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_1.line08"
+        },
+        {
+            "speaker": "主人公",
+            "text": "了解……ちょっと、この十数体のドローンが私一人で操作するの？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_1.line09"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "もちろん、やってみよう！",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest5_1.line10"
+        },
+        {
+            "speaker": "主人公",
+            "text": "（心声）kaede先生、強引すぎだな……",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest5_1.line11"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……今、揺れた？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest5_1.line12"
+        }
+    ]
+}

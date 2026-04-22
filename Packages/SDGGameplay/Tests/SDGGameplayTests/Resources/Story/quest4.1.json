@@ -1,0 +1,49 @@
+{
+    "scene": "Quest 4.1 - Briefing with Dr. Kaede",
+    "background": "laboratory",
+    "bgm": "lab_theme",
+    "dialogues": [
+        {
+            "speaker": "みなと",
+            "text": "ボーリングマシンの準備、完了っと！　次は{name}ちゃんのターンだね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_1.line01"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……また現場行くんですか？正直、前回の崖の揺れを思い出すと足がすくむ。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_1.line02"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "怖いのはいいことだよ。慎重に動ける証拠だ。でも今回は安全装置を三重にした。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_1.line03"
+        },
+        {
+            "speaker": "みなと",
+            "text": "あとフェーズシフターもアップデート済み！転送精度99.8％！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_1.line04"
+        },
+        {
+            "speaker": "主人公",
+            "text": "0.2％の誤差がちょっと怖いけど……まあ、信じます。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_1.line05"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "今回掘る地点は、前回サンプルの“ずれた層”の真下。深度はおよそ50メートルだ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_1.line06"
+        },
+        {
+            "speaker": "narration",
+            "text": "転送装置が起動する。白い光が主人公を包み、景色が切り替わる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest4_1.line07"
+        }
+    ]
+}
