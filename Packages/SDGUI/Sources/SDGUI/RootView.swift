@@ -46,7 +46,7 @@ import SDGPlatform
 /// reach after `RealityView` has finished its initial build. Kept as a
 /// plain `@MainActor` class so closures captured by the store
 /// orchestrator (which outlive any particular view redraw) can still
-/// read the current outcrop / player / sample container.
+/// read the current outcrop / player / sample container / environment.
 @MainActor
 final class POCSceneRefs {
     /// Root of the loaded geology outcrop, assigned once in the
@@ -59,6 +59,11 @@ final class POCSceneRefs {
     /// Invisible parent that collects spawned sample cores so they can
     /// be wiped en masse when the player clears inventory.
     var sampleContainer: Entity?
+
+    /// Root of the loaded PLATEAU corridor (5 tiles). Optional because
+    /// the USDZ files may be absent in test bundles or on first-run
+    /// before the conversion pipeline has produced them.
+    var environmentRoot: Entity?
 
     init() {}
 }
@@ -114,6 +119,24 @@ public struct RootView: View {
     /// Event subscription tokens retained so we can cancel on disappear.
     @State private var sampleCreatedToken: SubscriptionToken?
     @State private var moveIntentDebugToken: SubscriptionToken?
+
+    // MARK: - Phase 2 Alpha services
+
+    /// Loads PLATEAU Sendai corridor tiles from the app bundle.
+    /// Reused across view rebuilds; cheap to construct.
+    @State private var environmentLoader = PlateauEnvironmentLoader()
+
+    /// Loads `Character_*.usdz` from the app bundle and attaches Player
+    /// components + camera.
+    @State private var characterLoader = CharacterLoader()
+
+    /// SFX playback (AVAudioPlayer pool). @MainActor-isolated.
+    @State private var audioService = AudioService()
+
+    /// Subscribes the audio service to gameplay EventBus events
+    /// (DrillRequested → .drillStart, SampleCreatedEvent → .feedbackSuccess,
+    /// DrillFailed → .feedbackFailure). Started in `bootstrap()`.
+    @State private var audioBridge: AudioEventBridge?
 
     /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
     /// device width on iPad landscape; a 1000-pt drag rotating by one
@@ -184,6 +207,38 @@ public struct RootView: View {
         RealityView { content in
             Self.registerSystemsOnce()
 
+            // 1. Big green ground plane covering the entire 5-tile
+            //    corridor (~3 km east-west by ~2 km north-south).
+            //    Positioned slightly below Y=0 so the USDZ buildings'
+            //    ground-floor verts (at Y≈0 after centering) appear to
+            //    rest on it without z-fighting.
+            let ground = ModelEntity(
+                mesh: .generatePlane(width: 3500, depth: 2000),
+                materials: [SimpleMaterial(
+                    color: .systemGreen,
+                    roughness: 0.8,
+                    isMetallic: false
+                )]
+            )
+            ground.position = SIMD3<Float>(1250, -0.02, 500)   // corridor mid-point
+            content.add(ground)
+
+            // 2. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
+            //    materials are applied inside the loader. If any tile
+            //    is missing, the loader throws and we proceed without
+            //    cityscape so the app still launches.
+            do {
+                let corridor = try await environmentLoader.loadDefaultCorridor()
+                content.add(corridor)
+                sceneRefs.environmentRoot = corridor
+            } catch {
+                print("[SDG-Lab] PlateauEnvironmentLoader failed: \(error)")
+            }
+
+            // 3. Test geology outcrop. Offset 10 m east of spawn so it
+            //    doesn't overlap with the player and is reachable on
+            //    foot. The outcrop is the drillable object until real
+            //    geological data replaces it in Phase 2 Beta.
             let outcrop: Entity
             do {
                 outcrop = try GeologySceneBuilder.loadOutcrop(
@@ -191,47 +246,53 @@ public struct RootView: View {
                     in: .main
                 )
             } catch {
-                // Fall back to a plain green plane so the player still
-                // has somewhere to stand while we diagnose the bundle
-                // issue.
                 print("[SDG-Lab] GeologySceneBuilder.loadOutcrop failed: \(error)")
                 outcrop = ModelEntity(
                     mesh: .generatePlane(width: 10, depth: 10),
                     materials: [SimpleMaterial(color: .systemGreen, isMetallic: false)]
                 )
             }
+            outcrop.position = SIMD3<Float>(10, 0, 0)
             content.add(outcrop)
             sceneRefs.outcropRoot = outcrop
 
-            // Player capsule on top of the outcrop. Y=0.75 places the
-            // box's centre at half-height above the surface so the body
-            // doesn't clip through.
-            let body = ModelEntity(
-                mesh: .generateBox(
-                    size: SIMD3<Float>(0.5, 1.5, 0.5),
-                    cornerRadius: 0.25
-                ),
-                materials: [SimpleMaterial(
-                    color: .systemBlue,
-                    roughness: 0.4,
-                    isMetallic: false
-                )]
-            )
-            body.position = SIMD3<Float>(2, 0.75, 2)
-            body.components.set(PlayerComponent())
-            body.components.set(PlayerInputComponent())
-
-            let camera = PerspectiveCamera()
-            camera.position = SIMD3<Float>(0, 1.5, 0)
-            body.addChild(camera)
-
+            // 4. Player character. CharacterLoader attaches
+            //    PlayerComponent + PlayerInputComponent + a camera
+            //    child at head height. Feet sit at entity-local Y=0;
+            //    we spawn at (0, 0, 0) which is aobayamaCampus tile
+            //    centre per PlateauTile.defaultSpawn.
+            let body: Entity
+            do {
+                body = try await characterLoader.loadAsPlayer(.playerMale)
+            } catch {
+                // Fall back to the Phase 1 blue capsule so the app is
+                // still controllable even if Meshy USDZ is missing.
+                print("[SDG-Lab] CharacterLoader.loadAsPlayer failed: \(error)")
+                let capsule = ModelEntity(
+                    mesh: .generateBox(
+                        size: SIMD3<Float>(0.5, 1.5, 0.5),
+                        cornerRadius: 0.25
+                    ),
+                    materials: [SimpleMaterial(
+                        color: .systemBlue,
+                        roughness: 0.4,
+                        isMetallic: false
+                    )]
+                )
+                capsule.position = SIMD3<Float>(0, 0.75, 0)
+                capsule.components.set(PlayerComponent())
+                capsule.components.set(PlayerInputComponent())
+                let camera = PerspectiveCamera()
+                camera.position = SIMD3<Float>(0, 1.5, 0)
+                capsule.addChild(camera)
+                body = capsule
+            }
+            body.position = SIMD3<Float>(0, 0, 0)
             content.add(body)
             sceneRefs.playerEntity = body
             playerStore.attach(playerEntity: body)
 
-            // Invisible parent for spawned samples. Kept as a sibling of
-            // the outcrop so clearing inventory can drop the whole
-            // subtree in one line.
+            // 5. Invisible parent that collects spawned sample cores.
             let samples = Entity()
             samples.name = "SampleContainer"
             content.add(samples)
@@ -297,6 +358,14 @@ public struct RootView: View {
         sampleCreatedToken = await bus.subscribe(SampleCreatedEvent.self) { event in
             await spawnSampleInScene(for: event.sample)
         }
+
+        // AudioEventBridge: wire EventBus → AudioService so drilling
+        // and sample events play their SFX without any caller having
+        // to know about AVAudioPlayer. Kept as the last step so audio
+        // doesn't trigger on startup-driven events.
+        let bridge = AudioEventBridge(eventBus: bus, audioService: audioService)
+        await bridge.start()
+        audioBridge = bridge
 
         // Developer-facing debug: log every move intent. Real HUD
         // subscribers land in Phase 2.
@@ -376,11 +445,15 @@ public struct RootView: View {
         let ds = drillingStore
         let inv = inventoryStore
         let orch = orchestrator
+        let bridge = audioBridge
         Task {
             await ds.stop()
             await inv.stop()
             if let orch { await orch.stop() }
+            if let bridge { await bridge.stop() }
         }
+        audioBridge = nil
+        audioService.stopAll()
         playerStore.detach()
     }
 
