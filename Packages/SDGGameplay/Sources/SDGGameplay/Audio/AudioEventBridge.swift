@@ -98,26 +98,26 @@ public final class AudioEventBridge {
 
         let drillReqToken = await eventBus.subscribe(DrillRequested.self) { _ in
             await MainActor.run { () -> Void in
-                print("[SDG-Lab][audio] bridge received DrillRequested → play(.drillStart)")
                 audio.play(.drillStart)
             }
         }
 
         let sampleToken = await eventBus.subscribe(SampleCreatedEvent.self) { _ in
             await MainActor.run { () -> Void in
-                print("[SDG-Lab][audio] bridge received SampleCreatedEvent → play(.feedbackSuccess)")
                 audio.play(.feedbackSuccess)
             }
         }
 
         let failedToken = await eventBus.subscribe(DrillFailed.self) { _ in
             await MainActor.run { () -> Void in
-                print("[SDG-Lab][audio] bridge received DrillFailed → play(.feedbackFailure)")
                 audio.play(.feedbackFailure)
             }
         }
 
         tokens = [drillReqToken, sampleToken, failedToken]
+        // One-shot startup breadcrumb. If audio ever goes silent again,
+        // the absence of this line in Console.app is the first thing
+        // to check — it means bootstrap never got here.
         print("[SDG-Lab][audio] AudioEventBridge started with \(tokens.count) subscriptions")
     }
 

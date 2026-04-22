@@ -177,11 +177,13 @@ open class AudioService {
         // return the lone URL. A nil here means "no candidate bundle
         // resource at all" — bail out after shouting so Phase 2's
         // "silent no-op" failure mode can't resurface unnoticed.
+        // `print` rather than `os.log`: the Phase 2 audio bug taught us
+        // that os.log's default filter can hide diagnostic debug-level
+        // entries in Console.app; plain print always shows up.
         guard let url = pickURL(for: effect) else {
             print("[SDG-Lab][audio] play(\(effect.rawValue)): NO URL resolved (check bundle layout / extension)")
             return nil
         }
-        print("[SDG-Lab][audio] play(\(effect.rawValue)) → \(url.lastPathComponent) vol=\(volume)*\(masterVolume)")
 
         // Compute effective gain once so both the cached-player and
         // transient-player branches apply the same math.
