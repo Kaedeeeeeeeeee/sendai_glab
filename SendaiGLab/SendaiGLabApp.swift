@@ -23,23 +23,32 @@ struct SendaiGLabApp: App {
     let environment = AppEnvironment()
 
     init() {
-        // Configure AVAudioSession once at app launch so SFX mix with
-        // the user's background music instead of stopping it. `.ambient`
-        // means "we produce sound that is layered on top of whatever
-        // else is playing"; there's no recording, no interruption of
-        // iPod/Spotify, no ducking.
+        // Configure AVAudioSession once at app launch.
         //
-        // Failure here is non-fatal — the app still runs silently if
-        // audio session setup fails on some obscure device.
+        // Category: `.playback`, not `.ambient`.
+        //
+        // - `.ambient` respects the device's Silent switch / Control
+        //   Center mute. A muted iPad therefore silenced every SFX,
+        //   which is exactly what Phase 2 Alpha/Beta playtests hit.
+        //   Reference: Apple's "AVAudioSession.Category.ambient" docs
+        //   explicitly note "audio is silenced by the Silent switch."
+        // - `.playback` is Apple's recommended category for games/media
+        //   whose audio is primary content. It plays regardless of the
+        //   mute state. Combined with `.mixWithOthers`, we still let
+        //   the user's background Spotify / Apple Music keep playing.
+        //
+        // Failure here is non-fatal — if audio session setup throws on
+        // some obscure device the app still runs, just silently.
         do {
             try AVAudioSession.sharedInstance().setCategory(
-                .ambient,
+                .playback,
                 mode: .default,
                 options: [.mixWithOthers]
             )
             try AVAudioSession.sharedInstance().setActive(true)
+            print("[SDG-Lab][audio] AVAudioSession activated (.playback + .mixWithOthers)")
         } catch {
-            print("[SDG-Lab] AVAudioSession setup failed: \(error)")
+            print("[SDG-Lab][audio] AVAudioSession setup failed: \(error)")
         }
     }
 

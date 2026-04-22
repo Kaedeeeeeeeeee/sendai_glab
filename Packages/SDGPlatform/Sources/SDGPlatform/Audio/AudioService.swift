@@ -175,10 +175,13 @@ open class AudioService {
     open func play(_ effect: AudioEffect, volume: Float = 1.0) -> UUID? {
         // Pick a URL. Variant cues sample uniformly; single-file cues
         // return the lone URL. A nil here means "no candidate bundle
-        // resource at all" — bail out silently.
+        // resource at all" — bail out after shouting so Phase 2's
+        // "silent no-op" failure mode can't resurface unnoticed.
         guard let url = pickURL(for: effect) else {
+            print("[SDG-Lab][audio] play(\(effect.rawValue)): NO URL resolved (check bundle layout / extension)")
             return nil
         }
+        print("[SDG-Lab][audio] play(\(effect.rawValue)) → \(url.lastPathComponent) vol=\(volume)*\(masterVolume)")
 
         // Compute effective gain once so both the cached-player and
         // transient-player branches apply the same math.
@@ -191,7 +194,11 @@ open class AudioService {
             if !cached.isPlaying {
                 cached.currentTime = 0
                 cached.volume = effectiveVolume
-                return cached.play() ? UUID() : nil
+                let ok = cached.play()
+                if !ok {
+                    print("[SDG-Lab][audio] cached AVAudioPlayer.play() returned false for \(url.lastPathComponent)")
+                }
+                return ok ? UUID() : nil
             }
             // Busy: fall through to make a fresh one-shot instance.
         } else {
@@ -199,7 +206,11 @@ open class AudioService {
             // play once. Keeps the hot path at one allocation per cue.
             if let player = makePlayer(url: url, volume: effectiveVolume) {
                 cache[effect, default: [:]][url] = player
-                return player.play() ? UUID() : nil
+                let ok = player.play()
+                if !ok {
+                    print("[SDG-Lab][audio] fresh AVAudioPlayer.play() returned false for \(url.lastPathComponent) — session likely inactive")
+                }
+                return ok ? UUID() : nil
             }
             return nil
         }
