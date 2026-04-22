@@ -96,10 +96,60 @@
 
 **合計 199 tests / 0 failure**(SDGCore 22 + SDGGameplay 136 + SDGUI 41)
 
-### Phase 2 Alpha — 未着手
+### Phase 2 Starter — 完了(2026-04-22、PR #4)
 
-GDD §4.3 参照:残りツール、車両、Workbench、Encyclopedia、Quest / Dialogue 移植、
-PLATEAU 仙台データ統合、Meshy キャラクター 生成、災害イベント。
+- [x] Meshy.ai text-to-3d v2 で 5 体の placeholder 角色(USDZ 直出、22 MB)
+- [x] PLATEAU 仙台 CityGML ダウンロード(1.6 GB)+ nusamai で 5 個 3rd mesh glb 変換(走廊 Aobayama-Kawauchi、16 MB GLB)
+- [x] Kenney.nl CC0 SFX 22 個(UI / drill / footstep / feedback)
+- [x] Docs: Phase2-Starter.md、MeshyGenerationLog.md、plateau-pipeline/QUICKSTART.md
+
+### Phase 2 Alpha — 完了(2026-04-22、PR #5 + PR #6 修正)
+
+- [x] PlateauEnvironmentLoader + GLBToUSDZConverter + EnvironmentCenterer(World/)
+- [x] CharacterLoader + CharacterRole + IdleFloat System(Characters/)
+- [x] AudioService(SDGPlatform/Audio/)+ AudioEventBridge(SDGGameplay/Audio/)
+- [x] **重大発見**:ModelIO は iOS 26.4 / macOS 15 で GLB import 非対応。
+      回避:Blender CLI 離線変換(glb_to_usdz.py + convert_environment_glbs.sh)
+- [x] RootView 全統合:5 PLATEAU tile 描画 + Meshy 主人公 + AudioBridge 接続
+- [x] SendaiGLabApp で AVAudioSession.ambient + mixWithOthers 設定
+- [x] PR #6 playtest 修正:音效 bundle path + 建物 bottom-snap + walk speed 2 → 8 m/s
+
+**合計 276 tests / 0 failure**(SDGCore 22 + SDGGameplay 194 + SDGPlatform 19 + SDGUI 41)
+
+### Phase 2 Beta — 完了(2026-04-22、PR #7)
+
+- [x] Quest + Dialogue 移植(13 Unity quest + 14 StorySequence JSON)
+- [x] Workbench + 显微镜 UI(全屏 grid + pinch-zoom + 程序生成占位薄片)
+- [x] Vehicles(drone 15 m/s + drillCar 12 m/s、placeholder mesh)
+- [x] RootView Wave β 統合:DialogueOverlay + QuestTrackerView + DebugActionsBar
+- [x] Story → Quest chain:quest1.1 DialogueFinished → q.lab.intro 自動起動
+
+**合計 393 tests / 0 failure**(SDGCore 22 + SDGGameplay 303 + SDGPlatform 19 + SDGUI 49)
+
+### 真機実測(2026-04-22 f.shera)
+
+- ✅ Kaede 対話起動 + 逐句推進 OK
+- ✅ 対話終了後 Quest Tracker 左上表示
+- ✅ Drone 召喚視覚化
+- ✅ Workbench 全画面遷移 + 薄片ビューア
+- ✅ 既存(drilling / inventory / detail / delete)全て異常なし
+- ❌ **音效仍然没声音**(PR #6 の "root-level fallback" 修正でも直らず)
+
+### Phase 3 候補(未着手、優先順位は f.shera と決めていない)
+
+候補:
+1. **音効バグ深堀り**(最優先 — Phase 2 Alpha/Beta 両方で fix しても直らず)
+   - 疑い箇所:AVAudioSession 実装の activate 失敗?AudioService.pickURL のまた別の不整合?
+     AudioEventBridge の購読が実際に publish 受けていない?
+   - デバッグ方針:RootView の bootstrap() で `print("[SDG-Lab] audio bridge started")`
+     + AudioService.play に diagnostic log 追加して device log で確認
+2. PLATEAU DEM(terrain)統合 — 浮遊建物の根本修正
+3. Quest 自動 chain(X 完了 → Y 開始)、DialogueFinished → objective 自動完了ブリッジ
+4. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
+5. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
+6. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
+7. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
+8. 真の薄片写真(f.shera 研究室素材)
 
 ## よく参照するパス
 
@@ -130,5 +180,31 @@ python3 Tools/asset-validator/validate.py Resources/
 ## 会話テンプレート応答
 
 - 「進捗は?」 → 本ファイルの「進捗メモ」を読み上げ
-- 「次何やる?」 → GDD.md §4 のチェックリストから未完項目を抽出
+- 「次何やる?」 → 進捗メモ末尾の「Phase 3 候補」リストを読む
 - 「屎山になりそう」 → AGENTS.md §1 の原則を再確認
+
+## 重要な技術的落とし穴(再発防止)
+
+これまでに 2 回以上衝突した問題。新しいコードを書く前に該当箇所を確認:
+
+1. **iOS .app bundle は Resources/ を**平坦化**する**(folder-reference でない限り)
+   - 影響:`Bundle.main.url(forResource:subdirectory:)` でサブディレクトリ指定すると
+     production で file not found になる一方、SPM test bundle(`Bundle.module`)では
+     サブディレクトリが保存される
+   - 対策:両方試すパターン(subdirectory 先 → root fallback)を使う。参考:
+     `AudioService.pickURL`、`GeologySceneBuilder.loadOutcrop`
+   - **音效 bug がまだ残っているのは、この修正でもまだ不足している可能性あり**
+2. **ModelIO は GLB を読めない(iOS 26.4 現時点)**
+   - 回避:Blender CLI で事前 USDZ 変換。参考:`Tools/plateau-pipeline/glb_to_usdz.py`
+3. **project.yml の `type: folder` は iOS codesign を破壊する**
+   - 理由:`.app/Resources/` サブディレクトリが codesign に "nested bundle" と誤解される
+   - 対策:`type: folder` を使わず、個別ファイル参照か通常 `buildPhase: resources`
+4. **Meshy v2 text-to-3d は `art_style="cartoon"` を拒否**(2026-04-22 現在)
+   - `art_style="realistic"` + prompt で chibi 誘導するしかない
+5. **Swift 6 Strict Concurrency で `@MainActor` が必要な箇所**
+   - RealityKit System → `@MainActor`(scene mutation のため)
+   - `@Observable` Store は View からアクセスするなら `@MainActor`
+   - AVAudioPlayer 非 Sendable → AudioService 全体 `@MainActor`
+6. **`DEVELOPMENT_TEAM` はリポジトリに commit しない**
+   - 各開発者の `LocalSigning.xcconfig`(gitignored)で管理
+   - project.yml の `configFiles` で参照
