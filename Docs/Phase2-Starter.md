@@ -92,9 +92,15 @@ subagent が 4 個の SFX パックをダウンロード、22 ファイルを選
 | `footstep/` | 6 | grass / concrete / wood(各 2 バリエーション) |
 | `feedback/` | 4 | success / failure / notify / chime |
 
-**合計 220 KB**、全部 `.ogg`(iOS native)、最大ファイル 12 KB。
+**合計 220 KB**、全部 `.ogg`(Kenney 原本)、最大ファイル 12 KB。
 `Resources/Audio/SFX/` 配下。マニフェストは
 `Resources/Audio/README.md` に。
+
+> ⚠️ **Phase 3 訂正**(2026-04-22): iOS `AVAudioPlayer` は Ogg Vorbis を
+> デコードできないため、Phase 2 ではこの配置のまま無音だった。現在は
+> `.m4a` (AAC) に事前変換して Resources に置き、OGG 原本は
+> `Tools/audio-pipeline/source/` に退避。再変換は
+> `bash Tools/audio-pipeline/transcode_ogg_to_m4a.sh`。
 
 CC0 なので attribution 不要だが礼儀として `Docs/Attribution.md` に
 Kenney 行を追加。

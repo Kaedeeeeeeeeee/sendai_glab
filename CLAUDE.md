@@ -134,22 +134,37 @@
 - ✅ Workbench 全画面遷移 + 薄片ビューア
 - ✅ 既存(drilling / inventory / detail / delete)全て異常なし
 - ❌ **音效仍然没声音**(PR #6 の "root-level fallback" 修正でも直らず)
+  → ✅ **Phase 3 audio-fix で根治**(branch `fix/phase-3-audio-deep-dive`、ADR-0005)
+    真因は bundle path ではなく **iOS AVAudioPlayer が OGG Vorbis を非対応**。
+    Kenney OGG を全て AAC/M4A に事前変換 + pipeline script 化 + makePlayer に
+    os.log を追加してサイレント失敗を根絶。
+
+### Phase 2 Audio Fix — 完了(2026-04-22、branch `fix/phase-3-audio-deep-dive`)
+
+- [x] 原因特定:iOS `AVAudioPlayer(contentsOf: .ogg)` throws → makePlayer が
+      silently swallow → 全 SFX 無音の連鎖
+- [x] Tools/audio-pipeline/transcode_ogg_to_m4a.sh(ffmpeg 経由、idempotent)
+- [x] 22 OGG → 22 M4A 変換、OGG 原本は Tools/audio-pipeline/source/ に退避
+- [x] AudioService: extension を "m4a" に変更 + `os.Logger`(subsystem
+      `jp.tohoku-gakuin.fshera.sendai-glab`, category `audio`)を makePlayer 失敗・
+      pickURL miss 両方に配線 → Console.app で即可見
+- [x] AudioEffect / README / Phase2-Starter docs を全更新
+- [x] 退行ガード:`Packages/SDGPlatform/Tests/.../Fixtures/Audio/SFX/ui/UI_Tap.m4a`
+      を実際に AVAudioPlayer に食わせる testPlayResolvesAndCachesForRealM4AFixture
+- [x] ADR-0005: SFX container format (M4A/AAC, not OGG Vorbis)
+
+**合計 394 tests / 0 failure**(SDGCore 22 + SDGGameplay 303 + SDGPlatform 20 + SDGUI 49)
 
 ### Phase 3 候補(未着手、優先順位は f.shera と決めていない)
 
-候補:
-1. **音効バグ深堀り**(最優先 — Phase 2 Alpha/Beta 両方で fix しても直らず)
-   - 疑い箇所:AVAudioSession 実装の activate 失敗?AudioService.pickURL のまた別の不整合?
-     AudioEventBridge の購読が実際に publish 受けていない?
-   - デバッグ方針:RootView の bootstrap() で `print("[SDG-Lab] audio bridge started")`
-     + AudioService.play に diagnostic log 追加して device log で確認
-2. PLATEAU DEM(terrain)統合 — 浮遊建物の根本修正
-3. Quest 自動 chain(X 完了 → Y 開始)、DialogueFinished → objective 自動完了ブリッジ
-4. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
-5. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
-6. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
-7. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
-8. 真の薄片写真(f.shera 研究室素材)
+残り候補(優先順位は次回 f.shera と相談):
+1. PLATEAU DEM(terrain)統合 — 浮遊建物の根本修正
+2. Quest 自動 chain(X 完了 → Y 開始)、DialogueFinished → objective 自動完了ブリッジ
+3. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
+4. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
+5. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
+6. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
+7. 真の薄片写真(f.shera 研究室素材)
 
 ## よく参照するパス
 
@@ -193,18 +208,30 @@ python3 Tools/asset-validator/validate.py Resources/
      サブディレクトリが保存される
    - 対策:両方試すパターン(subdirectory 先 → root fallback)を使う。参考:
      `AudioService.pickURL`、`GeologySceneBuilder.loadOutcrop`
-   - **音效 bug がまだ残っているのは、この修正でもまだ不足している可能性あり**
-2. **ModelIO は GLB を読めない(iOS 26.4 現時点)**
+2. **iOS `AVAudioPlayer` は Ogg Vorbis を再生できない**(Phase 2 audio bug の真因)
+   - 症状:`AVAudioPlayer(contentsOf: .ogg)` が throw → makePlayer が silently
+     swallow → 全 SFX 無音。bundle path を何度修正しても直らない。
+   - 対応:対応フォーマットは AAC/M4A、MP3、WAV、AIFF、ALAC。Kenney 等の OGG 素材を
+     import するときは **必ず事前に M4A へ transcode**。参考:
+     `Tools/audio-pipeline/transcode_ogg_to_m4a.sh`、ADR-0005
+   - 予防:新しい audio 形式を使うときは `AudioService.makePlayer` の
+     `os.log` error(category `audio`)を Console.app で確認
+3. **ModelIO は GLB を読めない(iOS 26.4 現時点)**
    - 回避:Blender CLI で事前 USDZ 変換。参考:`Tools/plateau-pipeline/glb_to_usdz.py`
-3. **project.yml の `type: folder` は iOS codesign を破壊する**
+4. **project.yml の `type: folder` は iOS codesign を破壊する**
    - 理由:`.app/Resources/` サブディレクトリが codesign に "nested bundle" と誤解される
    - 対策:`type: folder` を使わず、個別ファイル参照か通常 `buildPhase: resources`
-4. **Meshy v2 text-to-3d は `art_style="cartoon"` を拒否**(2026-04-22 現在)
+5. **Meshy v2 text-to-3d は `art_style="cartoon"` を拒否**(2026-04-22 現在)
    - `art_style="realistic"` + prompt で chibi 誘導するしかない
-5. **Swift 6 Strict Concurrency で `@MainActor` が必要な箇所**
+6. **Swift 6 Strict Concurrency で `@MainActor` が必要な箇所**
    - RealityKit System → `@MainActor`(scene mutation のため)
    - `@Observable` Store は View からアクセスするなら `@MainActor`
    - AVAudioPlayer 非 Sendable → AudioService 全体 `@MainActor`
-6. **`DEVELOPMENT_TEAM` はリポジトリに commit しない**
+7. **`DEVELOPMENT_TEAM` はリポジトリに commit しない**
    - 各開発者の `LocalSigning.xcconfig`(gitignored)で管理
    - project.yml の `configFiles` で参照
+8. **Silent `catch { return nil }` は絶対に避ける**
+   - 例:`AudioService.makePlayer` で `AVAudioPlayer` 初期化失敗を swallow
+     していたら OGG 無音が 2 phase に跨って再現。catch 節には必ず `os.log`
+     か `#if DEBUG print` を残す。
+   - 教訓:fire-and-forget API でも **失敗は observable にする**
