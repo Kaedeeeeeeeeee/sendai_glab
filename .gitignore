@@ -69,6 +69,10 @@ Tools/*/cache/
 RawAssets/
 *.gml
 *.glb
+# Exception: processed GLB under Resources/ IS committed via Git LFS
+# (see .gitattributes). USDZ is the long-term target format once
+# Reality Converter is in the pipeline.
+!Resources/**/*.glb
 # NOTE: processed USDZ under Resources/ IS committed (with LFS)
 
 # Python (for Tools/)

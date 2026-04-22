@@ -77,7 +77,10 @@ class Thresholds:
 
 # File naming regexes derived from Docs/AssetPipeline.md
 RE_ENVIRONMENT = re.compile(r"^Environment_[A-Za-z0-9]+_[A-Za-z0-9]+\.usdz$")
-RE_CHARACTER = re.compile(r"^Character_[A-Za-z0-9]+_[A-Za-z0-9]+\.usdz$")
+# Variant is optional — NPCs with only one form (e.g. Kaede, Teacher)
+# legitimately have no variant suffix. Player characters still use
+# Role_Variant (Player_Male / Player_Female).
+RE_CHARACTER = re.compile(r"^Character_[A-Za-z0-9]+(_[A-Za-z0-9]+)?\.usdz$")
 RE_PROP = re.compile(r"^Prop_[A-Za-z0-9]+\.usdz$")
 RE_UI_PNG = re.compile(r"^UI_[A-Za-z0-9]+_[A-Za-z0-9]+\.png$")
 
