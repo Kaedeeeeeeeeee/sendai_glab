@@ -9,9 +9,10 @@
 /* Begin PBXBuildFile section */
 		0BAD3697E1AC691652AD5D03 /* SendaiGLabApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41234A757A6A535C11DD800A /* SendaiGLabApp.swift */; };
 		210F564EB19CC8FC2F109B91 /* SDGUI in Frameworks */ = {isa = PBXBuildFile; productRef = B10C1CEC652506FB6A2A274A /* SDGUI */; };
-		2384F9FBF8442398ECE6E4EE /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = 7C599BC245A359C14D6A8EA8 /* Resources */; };
+		2AE2BCD11548D82AF22F05EE /* test_outcrop.json in Resources */ = {isa = PBXBuildFile; fileRef = 3390B9CD745D97E73FDA1830 /* test_outcrop.json */; };
 		52DE50367B8F9BF1542CF39E /* SDGPlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 26DEE95F3289A53AC291AE69 /* SDGPlatform */; };
 		61F36F87C2635298C66AEAD3 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE1339749E907F62D014261 /* ContentView.swift */; };
+		7F18ADF68A6296BE43C84D36 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 5399CE9B1C20002EA549B2DC /* Localizable.xcstrings */; };
 		A76D0AA1C444E67E1F3417E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 851EAE20BF238919AEF68AF7 /* Assets.xcassets */; };
 		AEADBC39A744E5EFA2D2BBCC /* SDGCore in Frameworks */ = {isa = PBXBuildFile; productRef = E846777A7C002420F24EC68F /* SDGCore */; };
 		F0303CC21118AF3D96C58136 /* SDGGameplay in Frameworks */ = {isa = PBXBuildFile; productRef = C24A883783D9DFBE2B604573 /* SDGGameplay */; };
@@ -20,13 +21,15 @@
 /* Begin PBXFileReference section */
 		0897607016453118E9871183 /* SDGPlatform */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGPlatform; path = Packages/SDGPlatform; sourceTree = SOURCE_ROOT; };
 		3373356DF7535D4925743435 /* SDGUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGUI; path = Packages/SDGUI; sourceTree = SOURCE_ROOT; };
+		3390B9CD745D97E73FDA1830 /* test_outcrop.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_outcrop.json; sourceTree = "<group>"; };
 		3BE1339749E907F62D014261 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		41234A757A6A535C11DD800A /* SendaiGLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendaiGLabApp.swift; sourceTree = "<group>"; };
-		7C599BC245A359C14D6A8EA8 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = SOURCE_ROOT; };
+		5399CE9B1C20002EA549B2DC /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		7D6B5476525BB5980361D39A /* SDGGameplay */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGGameplay; path = Packages/SDGGameplay; sourceTree = SOURCE_ROOT; };
 		851EAE20BF238919AEF68AF7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BC798CEA09AB97A153A4BC27 /* SDGCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SDGCore; path = Packages/SDGCore; sourceTree = SOURCE_ROOT; };
 		D7453400397B5F3198F07DCB /* SendaiGLab.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SendaiGLab.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		"TEMP_1E5C17BE-467D-4AF2-804F-90B469F612E1" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +47,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0F9CB74952C2D4E9F1409BF8 /* Geology */ = {
+			isa = PBXGroup;
+			children = (
+				3390B9CD745D97E73FDA1830 /* test_outcrop.json */,
+			);
+			path = Geology;
+			sourceTree = "<group>";
+		};
 		25B80FCFA0E89E5BA1A59B80 /* SendaiGLab */ = {
 			isa = PBXGroup;
 			children = (
@@ -58,8 +69,8 @@
 			isa = PBXGroup;
 			children = (
 				B4D329C318F3C02C2B23380A /* Packages */,
+				6C2C573AACF2FE313C0BBEB1 /* Resources */,
 				25B80FCFA0E89E5BA1A59B80 /* SendaiGLab */,
-				7C599BC245A359C14D6A8EA8 /* Resources */,
 				4E02A08720BA0C08208661CD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -72,6 +83,15 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		6C2C573AACF2FE313C0BBEB1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				0F9CB74952C2D4E9F1409BF8 /* Geology */,
+				C1D16576498BE1FD9974CDE4 /* Localization */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		B4D329C318F3C02C2B23380A /* Packages */ = {
 			isa = PBXGroup;
 			children = (
@@ -81,6 +101,22 @@
 				3373356DF7535D4925743435 /* SDGUI */,
 			);
 			path = Packages;
+			sourceTree = "<group>";
+		};
+		C1D16576498BE1FD9974CDE4 /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				5399CE9B1C20002EA549B2DC /* Localizable.xcstrings */,
+			);
+			path = Localization;
+			sourceTree = "<group>";
+		};
+		"TEMP_DE623D8F-9C03-4726-8E34-01F0AD09EE10" /* sendai_glab */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_1E5C17BE-467D-4AF2-804F-90B469F612E1" /* LocalSigning.xcconfig */,
+			);
+			path = sendai_glab;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -119,7 +155,7 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					0D75B5B4B1D79AE38DFB2EC0 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = Y4FV6WUU4V;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -130,6 +166,8 @@
 			knownRegions = (
 				Base,
 				en,
+				ja,
+				"zh-Hans",
 			);
 			mainGroup = 29CDA6851987A0EA91242BAE;
 			minimizedProjectReferenceProxies = 1;
@@ -155,7 +193,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A76D0AA1C444E67E1F3417E6 /* Assets.xcassets in Resources */,
-				2384F9FBF8442398ECE6E4EE /* Resources in Resources */,
+				7F18ADF68A6296BE43C84D36 /* Localizable.xcstrings in Resources */,
+				2AE2BCD11548D82AF22F05EE /* test_outcrop.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,11 +246,9 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -245,6 +282,7 @@
 		};
 		A18825CECF467420BB9E11DC /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_1E5C17BE-467D-4AF2-804F-90B469F612E1" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -303,11 +341,9 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -334,6 +370,7 @@
 		};
 		FD7DEEC2B67B5D0A13C5A26E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_1E5C17BE-467D-4AF2-804F-90B469F612E1" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

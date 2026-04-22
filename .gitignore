@@ -52,6 +52,10 @@ secrets/
 *.cer
 *.mobileprovision
 
+# Personal signing config — each contributor keeps their own Team ID
+# locally. See LocalSigning.xcconfig.example for setup.
+LocalSigning.xcconfig
+
 # API keys config (never commit)
 Tools/meshy-pipeline/.meshy-api-key
 Tools/*/config.local.json

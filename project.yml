@@ -16,8 +16,10 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGN_STYLE: Automatic
+    # DEVELOPMENT_TEAM / CODE_SIGN_STYLE are intentionally NOT set here.
+    # They come from `LocalSigning.xcconfig` (gitignored, per-contributor)
+    # wired up in the SendaiGLab target below. See
+    # LocalSigning.xcconfig.example for setup.
 
 # Local Swift packages. Path is relative to the directory containing
 # project.yml. xcodegen will import them as Local Packages and
@@ -37,14 +39,27 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
+    # Per-contributor signing credentials. This file is gitignored; see
+    # LocalSigning.xcconfig.example for what to put in it.
+    configFiles:
+      Debug: LocalSigning.xcconfig
+      Release: LocalSigning.xcconfig
     sources:
       - path: SendaiGLab
-      # Bundled runtime data (geology outcrop JSON, Localization catalog,
-      # future shader assets). Path-level include so every file under
-      # Resources/ ends up in the app bundle automatically.
+      # Bundled runtime data. Listed without `type: folder` so xcodegen
+      # adds each file as an Xcode-processed resource rather than a raw
+      # folder reference. This matters for:
+      #   1. `.xcstrings` gets compiled into per-language `.lproj/*.strings`
+      #      (folder reference would leave it as a raw file).
+      #   2. iOS `.app` bundles are flat — resources live at the root.
+      #      A `Resources/` subdirectory inside the .app confuses codesign
+      #      (it treats the name as a nested bundle hint).
+      # Files end up accessible via `Bundle.main.url(forResource:withExtension:)`
+      # without a subdirectory parameter.
       - path: Resources
-        type: folder
         buildPhase: resources
+        excludes:
+          - "**/.gitkeep"
     dependencies:
       - package: SDGCore
       - package: SDGGameplay

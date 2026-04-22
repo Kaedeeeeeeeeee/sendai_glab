@@ -1,0 +1,25 @@
+// LocalSigning.xcconfig.example
+//
+// Copy this file to `LocalSigning.xcconfig` (NOT committed to git) and
+// fill in your personal / team credentials. The real file is gitignored
+// so every contributor keeps their own signing identity local.
+//
+// How to find your Team ID:
+//   1. Xcode → Settings (⌘,) → Accounts
+//   2. Pick your Apple ID on the left
+//   3. The right pane lists your teams; the 10-character string after
+//      the team name is the Team ID (e.g. `ABC12DE34F`).
+//   Or:  https://developer.apple.com/account → Membership → Team ID
+//
+// Setup:
+//   $ cp LocalSigning.xcconfig.example LocalSigning.xcconfig
+//   $ $EDITOR LocalSigning.xcconfig   # fill in the value below
+//   $ xcodegen generate                # re-emit .xcodeproj with the
+//                                       # xcconfig wired in
+//   Then Build & Run on your iPad.
+//
+// If you never change teams, this file lives forever in your working
+// directory and no one else sees it.
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
+CODE_SIGN_STYLE = Automatic
