@@ -1,0 +1,163 @@
+{
+    "scene": "Quest 4.4 - G-Lab Return Debrief",
+    "background": "laboratory",
+    "bgm": "lab_theme",
+    "dialogues": [
+        {
+            "speaker": "みなと",
+            "text": "おかえり！今度は崖に落ちたりしてないよね？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_4.line01"
+        },
+        {
+            "speaker": "主人公",
+            "text": "あはは、ギリギリセーフ。靴が泥だらけになったけどね。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_4.line02"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "無事で何より。フェーズシフターの転送データも問題なさそうだ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line03"
+        },
+        {
+            "speaker": "主人公",
+            "text": "これが、今日のサンプルです。ちょっと変な感触があったけど……",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_4.line04"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そう、じゃあさっそく見てみようか。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line05"
+        },
+        {
+            "speaker": "narration",
+            "text": "サンプルが分析台の上に置かれ、静かにスキャナーの光が走った。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest4_4.line06"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……見て先生、この層。下の方だけ粒が潰れてる。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_4.line07"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ほんとだ……しかも粒の向きがそろっている。地層が横に“動かされた”跡だ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line08"
+        },
+        {
+            "speaker": "主人公",
+            "text": "つまり、地面の下で何かが滑った？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_4.line09"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そう。そしてそれは、地震直後のサンプルにはなかった変化だ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line10"
+        },
+        {
+            "speaker": "みなと",
+            "text": "ってことは……ここ、今も動いてるの？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_4.line11"
+        },
+        {
+            "speaker": "narration",
+            "text": "モニターに映るデータが小さく震えた。画面のラインがゆっくりと歪み、赤いエリアが広がる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest4_4.line12"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "……これは断層の“呼吸”だ。仙台の地下、眠っていないかも。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line13"
+        },
+        {
+            "speaker": "主人公",
+            "text": "……断層が、動いてる……？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_4.line14"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "“呼吸する断層”っていうのはね、地表では静かに見えても、地下でまだ力を溜めたり緩めたりしている“活断層”のことよ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line15"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "何年、何十年も動かないこともあるけど、確かに“生きている”。だからこそ、次の一瞬を油断できないの。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line16"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……地面が生きてるって、やっぱり怖いけど、どこか切ないね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_4.line17"
+        },
+        {
+            "speaker": "narration",
+            "text": "部屋の空気が一瞬止まった。窓の外では、夕陽がビルの隙間に沈みかけていた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest4_4.line18"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "しかし、今、地層の下は一体どのようなのか……これを証明するため、もっとはっきりな情報が必要だ",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line19"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "地表からの観測だけでは、もう限界ね。断層の“呼吸”はさらに深いところで起きているかもしれない。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line20"
+        },
+        {
+            "speaker": "主人公",
+            "text": "つまり、次は地下を“見る”ってことですか？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest4_4.line21"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そう。人が入れない場所を調べるには、機械の目が必要。――無人探査ドローンを使おう。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line22"
+        },
+        {
+            "speaker": "みなと",
+            "text": "ドローンで断層を探るって、ちょっとワクワクするね……でも、危なくない？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest4_4.line23"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "リスクがないとは言えないけれど、実際今回の任務は採集任務より安全だよ、野外に行く必要は無いから。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line24"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "でも、今回の任務も大事だよ。いろんな人の命を救えるかもしれない。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest4_4.line25"
+        },
+        {
+            "speaker": "narration",
+            "text": "三人の視線がモニターの地図に集まる。赤いラインが、仙台の地下を静かに走っていた――その線の先に、まだ知られざる真実が眠っている。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest4_4.line26"
+        }
+    ]
+}

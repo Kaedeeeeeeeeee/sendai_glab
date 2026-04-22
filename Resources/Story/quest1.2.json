@@ -1,0 +1,49 @@
+{
+    "scene": "Laboratory Intro",
+    "background": "laboratory",
+    "bgm": "lab_theme",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "視界がねじれ、音が遠ざかる。次に目を開けたとき――そこは見知らぬ白い施設だった。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_2.line01"
+        },
+        {
+            "speaker": "主人公",
+            "text": "ここ……どこ？　みなと……！　大丈夫か？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_2.line02"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……う、うん……。ここ……学校じゃないよね……？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_2.line03"
+        },
+        {
+            "speaker": "narration",
+            "text": "はっと顔を上げると、目の前に男が立っていた。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_2.line04"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "......",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_2.line05"
+        },
+        {
+            "speaker": "主人公",
+            "text": "ここって...?",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_2.line06"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "G-Labへようこそ",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_2.line07"
+        }
+    ]
+}

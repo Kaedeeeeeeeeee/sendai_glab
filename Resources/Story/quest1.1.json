@@ -1,0 +1,163 @@
+{
+    "scene": "第一幕：昼休みの異変",
+    "background": "classroom_day",
+    "bgm": "school_daytime",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "昼休みの教室。窓の外は青空、鳥の声が響いている。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_1.line01"
+        },
+        {
+            "speaker": "みなと",
+            "text": "ねぇ、今日の理科の授業、聞いてた？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line02"
+        },
+        {
+            "speaker": "みなと",
+            "text": "地震の話、ちょっと怖くない？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line03"
+        },
+        {
+            "speaker": "主人公",
+            "text": "うん、でも先生が言ってた『地球の呼吸』って言葉、なんかロマンチックじゃない？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line04"
+        },
+        {
+            "speaker": "みなと",
+            "text": "ロマンチックって...（笑）やっぱりあんた、変わってるよ。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line05"
+        },
+        {
+            "speaker": "みなと",
+            "text": "でも、地球が生きてるみたいで面白いかもね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line06"
+        },
+        {
+            "speaker": "主人公",
+            "text": "ねぇ、もし本当に地球が“呼吸”してるなら、僕たちはその上で暮らしてる小さな生き物かも。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line07"
+        },
+        {
+            "speaker": "みなと",
+            "text": "まあ、地球が呼吸していようがしていまいが、私たちはそもそも小さな生き物なんだよね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line08"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……って、あれ？ちょっと揺れてない？",
+            "shake": true,
+            "shakeAmplitude": 0.25,
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line09"
+        },
+        {
+            "speaker": "主人公",
+            "text": "そうだね、でももっと待ったら止まるでしょう。",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line10"
+        },
+        {
+            "speaker": "主人公",
+            "text": "あれ……また止まってないか……",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line11"
+        },
+        {
+            "speaker": "ほかのクラスメート",
+            "text": "うわ！本棚が倒れた！",
+            "shake": true,
+            "shakeAmplitude": 0.55,
+            "speakerKey": "story.speaker.classmate",
+            "textKey": "story.quest1_1.line12"
+        },
+        {
+            "speaker": "みなと",
+            "text": "わっ、うそ！？　こんな強いの、初めて――！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line13"
+        },
+        {
+            "speaker": "主人公",
+            "text": "机の下に！　早く！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line14"
+        },
+        {
+            "speaker": "sfx",
+            "text": "rumble_stop",
+            "speakerKey": "story.speaker.sfx",
+            "textKey": "story.quest1_1.line15"
+        },
+        {
+            "speaker": "narration",
+            "text": "揺れはどんどん強くなり、黒板が倒れ、天井のライトが落ちてくる。教室中が悲鳴で満ちる。",
+            "shake": true,
+            "shakeAmplitude": 0.95,
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_1.line16"
+        },
+        {
+            "speaker": "学生A",
+            "text": "キャー！　天井が！　助けてぇっ！",
+            "speakerKey": "story.speaker.student_a",
+            "textKey": "story.quest1_1.line17"
+        },
+        {
+            "speaker": "学生B",
+            "text": "こっちのドアが開かない！誰かっ！",
+            "speakerKey": "story.speaker.student_b",
+            "textKey": "story.quest1_1.line18"
+        },
+        {
+            "speaker": "narration",
+            "text": "激しい衝撃音。窓ガラスが砕け散り、壁が崩れ始める。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_1.line19"
+        },
+        {
+            "speaker": "みなと",
+            "text": "いやっ……！",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_1.line20"
+        },
+        {
+            "speaker": "narration",
+            "text": "その瞬間、天井の一部が落下し、みなとの肩をかすめた。彼女は小さく呻いて、そのまま意識を失う。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_1.line21"
+        },
+        {
+            "speaker": "主人公",
+            "text": "みなと！？　しっかりして！　みなと！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line22"
+        },
+        {
+            "speaker": "narration",
+            "text": "主人公は震える手で彼女の手を強く握りしめた。轟音の中、心臓の鼓動だけがはっきりと聞こえる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_1.line23"
+        },
+        {
+            "speaker": "主人公",
+            "text": "（……助けたい。どうか、誰か……！）",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_1.line24"
+        },
+        {
+            "speaker": "narration",
+            "text": "その瞬間、主人公の手から眩しい光が溢れ出した。崩壊する教室が白い閃光に包まれる。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_1.line25"
+        }
+    ]
+}

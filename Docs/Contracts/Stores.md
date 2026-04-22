@@ -30,6 +30,10 @@ Per `Store.swift:20-23`:
 | [`PlayerControlStore`](#playercontrolstore) | `SDGGameplay/Player/PlayerControlStore.swift` | 🟢 | `.move(SIMD2<Float>)`, `.look(SIMD2<Float>)`, `.stop` | `PlayerMoveIntentChanged` | — | `init(eventBus:)` + `attach(playerEntity:)` / `detach()`; no async start/stop |
 | [`DrillingStore`](#drillingstore) | `SDGGameplay/Drilling/DrillingStore.swift` | 🟢 | `.drillAt(origin:, direction:, maxDepth:)` | `DrillRequested` | `DrillCompleted`, `DrillFailed` | `init(eventBus:)` → `start()` → `stop()` (both idempotent) |
 | [`InventoryStore`](#inventorystore) | `SDGGameplay/Samples/InventoryStore.swift` | 🟢 | `.select(SampleItem.ID?)`, `.delete(SampleItem.ID)`, `.clearAll`, `.updateNote(SampleItem.ID, String?)` | — | `SampleCreatedEvent` | `init(eventBus:, persistence:)` → `start()` → `stop()` (both idempotent) |
+| [`VehicleStore`](#vehiclestore) | `SDGGameplay/Vehicles/VehicleStore.swift` | 🟡 | `.summon(VehicleType, position:)`, `.enter(vehicleId:)`, `.exit`, `.pilot(axis:, vertical:)` | `VehicleSummoned`, `VehicleEntered`, `VehicleExited` | — | `init(eventBus:)` + `register(entity:for:)` / `unregister(vehicleId:)`; no async start/stop |
+| [`WorkbenchStore`](#workbenchstore) | `SDGGameplay/Workbench/WorkbenchStore.swift` | 🟡 | `.openWorkbench`, `.closeWorkbench`, `.selectSample(SampleItem.ID?)`, `.selectLayer(layerIndex: Int?)` | `WorkbenchOpened`, `SampleAnalyzed` | — | `init(eventBus:)`; no async start/stop (pure publisher) |
+| [`QuestStore`](#queststore) | `SDGGameplay/Quest/QuestStore.swift` | 🟡 | `.start(questId:)`, `.completeObjective(questId:objectiveId:)`, `.markComplete(questId:)`, `.reset` | `QuestStarted`, `ObjectiveCompleted`, `QuestCompleted`, `RewardGranted` | `SampleCreatedEvent` | `init(eventBus:persistence:)` → `start()` → `stop()` (both idempotent) |
+| [`DialogueStore`](#dialoguestore) | `SDGGameplay/Dialogue/DialogueStore.swift` | 🟡 | `.play(sequence: StorySequence)`, `.advance`, `.skipAll` | `DialoguePlayed`, `DialogueAdvanced`, `DialogueFinished` | — | `init(eventBus:)`; no async start/stop (pure publisher) |
 
 ---
 
@@ -120,6 +124,106 @@ Per `Store.swift:20-23`:
   - `start() async` (`InventoryStore.swift:95-108`) — hydrates from persistence (`try? persistence.load()`, corrupt/missing blobs are treated as "start empty") then subscribes. **Idempotent on the subscription**: a second call re-loads from disk but keeps the original subscription (guarded by `subscriptionToken == nil`).
   - `stop() async` (`InventoryStore.swift:112-116`) — cancels the subscription. Safe to call multiple times; safe to call without a prior `start()`.
   - No auto-cancel in `deinit` — Swift does not allow `async` work inside `deinit`; see the design note at `InventoryStore.swift:25-33`.
+
+### `VehicleStore`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleStore.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleStore.swift)
+- **Declaration**: `VehicleStore.swift` — `@MainActor @Observable public final class VehicleStore: Store`
+- **Status**: 🟡 Defined — the Store, its events, and the `VehicleControlSystem` are wired and tested in Phase 2 Beta; the RootView integration (camera re-parenting on `VehicleEntered`/`VehicleExited`, entity materialisation on `VehicleSummoned`) lands in a subsequent Phase 2 Beta wave.
+- **Intent** (`VehicleStore.swift`, `enum Intent: Sendable, Equatable`):
+  - `.summon(VehicleType, position: SIMD3<Float>)` — spawn a new vehicle. Store assigns the `UUID` and appends a `VehicleSnapshot` to `summonedVehicles`; callers read back from there.
+  - `.enter(vehicleId: UUID)` — attempt to pilot. No-op if the id is unknown OR if the player is already occupying another vehicle (switching requires an explicit `.exit` first — mirrors camera rig symmetry).
+  - `.exit` — stop piloting the currently-occupied vehicle. No-op when nothing is occupied.
+  - `.pilot(axis: SIMD2<Float>, vertical: Float)` — latest joystick + climb sample. No-op while `occupiedVehicleId == nil`; when occupied, writes into the entity's `VehicleComponent` (if bound). Clamping of `axis` to the unit disk is the HUD's responsibility.
+- **State**:
+  - `summonedVehicles: [VehicleSnapshot] = []` — every summoned vehicle in summon order. `VehicleSnapshot` is `Sendable + Identifiable + Equatable` carrying `(id, type, position)`. Position is the spawn position; the live position is authoritative on the RealityKit entity.
+  - `occupiedVehicleId: UUID? = nil` — id of the currently-piloted vehicle, or `nil` on foot.
+- **Side effects on Entity**:
+  - Holds a `[UUID: WeakEntityBox]` registry keyed by vehicle id; populated via `register(entity:for:)` from the scene-side `VehicleSummoned` subscriber.
+  - On `.enter`: flips `VehicleComponent.isOccupied = true` on the registered entity (if present).
+  - On `.exit`: flips `isOccupied = false` and zeroes `moveAxis` + `verticalInput` on the entity.
+  - On `.pilot`: writes `moveAxis` + `verticalInput` into the entity's component.
+- **Publishes**:
+  - `VehicleSummoned(vehicleId:, vehicleType:, position:)` — on every `.summon` intent, after appending the snapshot.
+  - `VehicleEntered(vehicleId:, vehicleType:)` — on `.enter` success (id known AND not already occupying).
+  - `VehicleExited(vehicleId:)` — on `.exit` when a vehicle was actually occupied.
+- **Subscribes**: — (none; `VehicleStore` is a one-way forwarder — UI → Entity + event).
+- **Lifecycle**:
+  - `init(eventBus: EventBus)` — stores the bus; no I/O, no subscription.
+  - `register(entity: Entity, for vehicleId: UUID)` — scene-side subscriber to `VehicleSummoned` calls this after building the entity. Holds weak. Calling twice replaces quietly (scene reload-friendly).
+  - `unregister(vehicleId: UUID)` — scene teardown hook. Safe even if the id was never registered.
+  - `resetForTesting()` — public test hook.
+  - **No `start()` / `stop()`** because the Store never subscribes to any event.
+
+### `WorkbenchStore`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Workbench/WorkbenchStore.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Workbench/WorkbenchStore.swift)
+- **Declaration**: `WorkbenchStore.swift` — `@MainActor @Observable public final class WorkbenchStore: Store`
+- **Status**: 🟡 Defined — class + event pipe ship in Phase 2 Beta; RootView integration (the "🔬" HUD button that presents `WorkbenchView` in a `fullScreenCover`) lands in the main-agent integration wave.
+- **Intent** (`WorkbenchStore.swift`, `enum Intent: Sendable, Equatable`):
+  - `.openWorkbench` — move to `.open(nil, nil)`. No-op if already open. Publishes `WorkbenchOpened` on the transition.
+  - `.closeWorkbench` — move to `.closed` and drop any selection. No-op if already closed. Publishes nothing.
+  - `.selectSample(SampleItem.ID?)` — set the inspected sample (or clear with `nil`). No-op when workbench is closed. Implicitly clears `selectedLayer` because layer indices don't travel across samples.
+  - `.selectLayer(layerIndex: Int?)` — set the inspected layer inside the currently-selected sample. No-op when workbench is closed or no sample is picked. Publishes `SampleAnalyzed` iff `layerIndex` is non-nil (deselecting stays silent).
+- **Status enum**: `.closed` or `.open(selectedSample: SampleItem.ID?, selectedLayer: Int?)`. Encoding open+selection as associated values means the UI cannot observe an invalid "closed but selected" state.
+- **Convenience getters**: `isOpen: Bool`, `selectedSampleId: SampleItem.ID?`, `selectedLayerIndex: Int?` — all derived from `status`.
+- **Publishes**:
+  - `WorkbenchOpened(openedAt: Date())` on the `.closed → .open` transition.
+  - `SampleAnalyzed(sampleId:, layerId: "layer_\(index)", analyzedAt:)` whenever a `.selectLayer` intent commits a non-nil index with a sample already selected. `layerId` is the stringified index today — see note in Events.md for Phase 3 upgrade path.
+- **Subscribes**: — (none; `WorkbenchStore` is a pure publisher).
+- **Lifecycle**:
+  - `init(eventBus: EventBus)` — stores the bus; no I/O, no subscription.
+  - **No `start()` / `stop()`** because the Store never subscribes to any event.
+
+### `QuestStore`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestStore.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestStore.swift)
+- **Declaration**: `QuestStore.swift` — `@MainActor @Observable public final class QuestStore: Store`
+- **Status**: 🟡 Defined — the store, persistence, and event pipe ship in Phase 2 Beta; UI wiring (quest tracker HUD, guidance arrows) lands in Phase 2 Alpha.
+- **Intent** (`QuestStore.swift`, `enum Intent: Sendable, Equatable`):
+  - `.start(questId: String)` — `.notStarted` → `.inProgress` + `QuestStarted`. No-op on unknown ids and on quests already past `.notStarted`.
+  - `.completeObjective(questId: String, objectiveId: String)` — flip the objective's `completed` flag and publish `ObjectiveCompleted`. If the quest's `areAllObjectivesCompleted` becomes true, also publish `QuestCompleted` and one `RewardGranted` per attached reward.
+  - `.markComplete(questId: String)` — admin / cutscene shortcut. Forces every objective to `completed`, flips `status` to `.completed`, and runs the same finalize path as above (including reward grants).
+  - `.reset` — restore every quest to `QuestCatalog.all` baseline, clear reward bookkeeping, wipe persistence. No events fired; subscribers drive off `QuestStarted` on the next `.start`.
+- **State**:
+  - `quests: [Quest]` — every catalog-defined quest, merged with persisted progress on `start()`. Array order matches `QuestCatalog.all` so UI can render a linear chapter list.
+  - `fieldPhaseSampleCount: Int` (private) — ephemeral counter for the `q.field.phase.collect_samples` auto-completion. Not persisted; re-collected after a relaunch if the objective is still open.
+  - `grantedRewardKeys: Set<String>` (private) — deduped reward keys loaded from persistence; guarantees `RewardGranted` fires at most once per `(questId, reward)` pair.
+  - `fieldPhaseSampleTarget: Int = 3` (public static) — how many `SampleCreatedEvent`s complete the objective. Matches the legacy `FieldPhaseTargetSequence` length.
+- **Queries**:
+  - `quest(withId:)` — O(n) scan; returns `nil` for unknown ids.
+  - `isObjectiveCompleted(_:)` — O(n·m) scan; small constant factors (≤13 quests × ≤2 objectives each today).
+- **Publishes**:
+  - `QuestStarted(questId:)` — on the `.notStarted` → `.inProgress` transition.
+  - `ObjectiveCompleted(questId:, objectiveId:)` — on the first `.completeObjective` for a given objective.
+  - `QuestCompleted(questId:)` — once all objectives are done (via `.completeObjective` or `.markComplete`).
+  - `RewardGranted(questId:, reward:)` — per reward attached to a freshly-completed quest, deduped across relaunches.
+- **Subscribes**:
+  - `SampleCreatedEvent` — installed in `start()`; the handler is gated on `q.field.phase` being `.inProgress`, `enter_field` already completed, and `collect_samples` still open. Counter-based (any three samples complete the objective). Position-based matching is a Phase 2 Alpha TODO, documented inline.
+- **Lifecycle**:
+  - `init(eventBus:persistence: = .standard)` — stores deps; no I/O, no subscription.
+  - `start() async` — hydrate from `QuestPersistence`, run a lightweight localization-key probe (DEBUG-only, skipped when Bundle.main has no `ja`/`zh-Hans` — i.e. during `swift test`), then subscribe to `SampleCreatedEvent`. Idempotent on the subscription; re-running `start()` re-hydrates but keeps the one token.
+  - `stop() async` — cancel the subscription. Idempotent.
+
+### `DialogueStore`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueStore.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueStore.swift)
+- **Declaration**: `DialogueStore.swift` — `@MainActor @Observable public final class DialogueStore: Store`
+- **Status**: 🟡 Defined — store + events ship in Phase 2 Beta; UI (full-screen cutscene overlay) lands in Phase 2 Alpha.
+- **Intent** (`DialogueStore.swift`, `enum Intent: Sendable, Equatable`):
+  - `.play(sequence: StorySequence)` — start the given sequence from line 0. Overrides any currently-playing sequence (matches the legacy `StoryDirector` "latest call wins"). Empty sequences short-circuit through `.finished(skipped: false)` after firing `DialoguePlayed` + `DialogueFinished` so awaits never deadlock.
+  - `.advance` — step forward one line. No-op in `.idle` / `.finished`. On the advance that crosses the last line, transitions to `.finished(skipped: false)` and publishes `DialogueFinished` instead of `DialogueAdvanced`.
+  - `.skipAll` — jump straight to `.finished(skipped: true)`. No-op in `.idle` / `.finished`. Quest objectives gated on "dialogue finished" should treat `skipped` as equivalent to natural completion.
+- **Status enum**: `.idle`, `.playing(sequence: StorySequence, currentLineIndex: Int)`, `.finished(sequence: StorySequence, skipped: Bool)`.
+- **Convenience getters**: `currentLine: DialogueLine?`, `isOnLastLine: Bool` — derived from `status`, exposed so UI can swap "next ▸" for "finish ✓" without opening the Status enum.
+- **Publishes**:
+  - `DialoguePlayed(sequenceId:)` — on every `.play(sequence:)` intent, including the empty-sequence fast-path.
+  - `DialogueAdvanced(sequenceId:, lineIndex:)` — per successful mid-sequence advance. NOT fired on the advance that finishes the sequence.
+  - `DialogueFinished(sequenceId:, skipped:)` — on advance-past-last-line (`skipped: false`), `.skipAll` (`skipped: true`), and the empty-sequence path (`skipped: false`).
+- **Subscribes**: — (none; `DialogueStore` is a pure publisher).
+- **Lifecycle**:
+  - `init(eventBus:)` — stores the bus; no I/O, no subscription.
+  - **No `start()` / `stop()`** because the Store never subscribes to any event.
 
 ---
 

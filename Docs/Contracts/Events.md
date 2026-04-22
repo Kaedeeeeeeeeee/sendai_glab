@@ -31,6 +31,18 @@ plain data (`GameEvent.swift:17-18`).
 | [`SampleCreatedEvent`](#samplecreatedevent) | 🟢 | `SDGGameplay/Samples` | `DrillingOrchestrator.performDrill` (success branch) | `InventoryStore.start()` | Hand a completed `SampleItem` to the inventory |
 | [`PanEvent`](#panevent) | 🟡 | `SDGPlatform` | — (`TouchInputService.publish(pan:)` exists; no current caller) | — (none) | Generic pan sample envelope; not yet used in Phase 1 |
 | [`LookPanEvent`](#lookpanevent) | 🟡 | `SDGPlatform` | `RootView.lookGesture.onChanged` (and `TouchInputService.publish(look:)`) | — (none) | Raw right-half-screen pan delta — no in-app subscriber yet, exposed for future replay / analytics |
+| [`VehicleSummoned`](#vehiclesummoned) | 🟡 | `SDGGameplay/Vehicles` | `VehicleStore.summon(type:at:)` | Phase 2 Beta: RootView will subscribe to materialise the RealityKit entity via `VehicleMeshFactory` | Ask the scene to build a placeholder RealityKit entity for a newly-summoned vehicle |
+| [`VehicleEntered`](#vehicleentered) | 🟡 | `SDGGameplay/Vehicles` | `VehicleStore.enter(vehicleId:)` (success) | Phase 2 Beta: RootView will re-parent the camera to the vehicle root | Signal the camera rig / HUD to switch to vehicle-pilot mode |
+| [`VehicleExited`](#vehicleexited) | 🟡 | `SDGGameplay/Vehicles` | `VehicleStore.exitCurrent()` | Phase 2 Beta: RootView will restore the player camera | Signal the camera rig / HUD to restore on-foot mode |
+| [`WorkbenchOpened`](#workbenchopened) | 🟡 | `SDGGameplay/Workbench` | `WorkbenchStore.intent(.openWorkbench)` | — (Phase 3: Quest / tutorial) | Fire once when the player opens the microscope UI |
+| [`SampleAnalyzed`](#sampleanalyzed) | 🟡 | `SDGGameplay/Workbench` | `WorkbenchStore.intent(.selectLayer)` (non-nil index after a sample is selected) | — (Phase 3: Quest "analyze N samples" + Encyclopedia auto-unlock) | Fire when a sample+layer pair is committed in the microscope ("analyzed something") |
+| [`QuestStarted`](#queststarted) | 🟡 | `SDGGameplay/Quest` | `QuestStore.intent(.start)` (on `.notStarted` → `.inProgress`) | — (Phase 2 Alpha: quest tracker HUD, guidance arrow) | Announce a quest transitioned to `.inProgress` |
+| [`ObjectiveCompleted`](#objectivecompleted) | 🟡 | `SDGGameplay/Quest` | `QuestStore.intent(.completeObjective)` (and the `SampleCreatedEvent` handler for `q.field.phase.collect_samples`) | — (Phase 2 Alpha: quest tracker checkmark animation) | Announce one objective flipped complete |
+| [`QuestCompleted`](#questcompleted) | 🟡 | `SDGGameplay/Quest` | `QuestStore` internal `finalizeCompletion` (all objectives satisfied OR `.markComplete`) | — (Phase 2 Alpha: cutscene trigger, next-quest auto-start) | Announce a quest transitioned to `.completed` |
+| [`RewardGranted`](#rewardgranted) | 🟡 | `SDGGameplay/Quest` | `QuestStore` internal `finalizeCompletion`, one per reward, deduped via `grantedRewardKeys` | — (Phase 2 Alpha: inventory unlock UI, story-flag subscribers) | Deliver a single `QuestReward` (tool unlock or story flag) exactly once |
+| [`DialoguePlayed`](#dialogueplayed) | 🟡 | `SDGGameplay/Dialogue` | `DialogueStore.intent(.play)` | — (Phase 2 Alpha: dialogue view letterbox, AudioBridge BGM swap) | Fire at the moment a sequence begins playback (index 0 about to show) |
+| [`DialogueAdvanced`](#dialogueadvanced) | 🟡 | `SDGGameplay/Dialogue` | `DialogueStore.intent(.advance)` while mid-sequence (not on the advance that finishes) | — (Phase 2 Alpha: per-line SFX, typewriter animation kick) | Fire per line when `currentLineIndex` moves forward |
+| [`DialogueFinished`](#dialoguefinished) | 🟡 | `SDGGameplay/Dialogue` | `DialogueStore` — `.advance` past the last line, `.skipAll`, and the empty-sequence path | — (Phase 2 Alpha: `QuestStore` may listen to auto-complete certain objectives) | Fire once when the sequence ends, carrying whether the user skipped |
 
 ---
 
@@ -215,6 +227,218 @@ plain data (`GameEvent.swift:17-18`).
   {
     "dx": 4.0,
     "dy": -2.0
+  }
+  ```
+
+### `VehicleSummoned`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleEvents.swift)
+- **Declaration**: `VehicleEvents.swift` — `public struct VehicleSummoned: GameEvent, Equatable`
+- **Status**: 🟡 Defined — the `VehicleStore` publishes on every `.summon` intent; the scene-side subscriber (RootView) lands in a subsequent Phase 2 Beta wave.
+- **Fields**:
+  - `vehicleId: UUID` — stable identity the Store assigns when the snapshot is created. Matches `VehicleComponent.vehicleId` once the entity is built.
+  - `vehicleType: VehicleType` — `.drone` or `.drillCar`; drives the factory method the subscriber picks.
+  - `position: SIMD3<Float>` — world-space spawn position.
+- **Published by**:
+  - `VehicleStore.summon(type:at:)` — on every `.summon` intent, after appending the snapshot.
+- **Subscribed by**: — (Phase 2 Beta: RootView will subscribe to materialise entities via `VehicleMeshFactory.makeDrone()` / `.makeDrillCar()` and register them back into the Store via `register(entity:for:)`).
+- **Payload example** (JSON):
+  ```json
+  {
+    "vehicleId": "…UUID…",
+    "vehicleType": "drone",
+    "position": [10.0, 0.0, 5.0]
+  }
+  ```
+
+### `VehicleEntered`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleEvents.swift)
+- **Declaration**: `VehicleEvents.swift` — `public struct VehicleEntered: GameEvent, Equatable`
+- **Status**: 🟡 Defined — published from the Store; the camera re-parenting subscriber is on the Phase 2 Beta integration wave.
+- **Fields**:
+  - `vehicleId: UUID` — the vehicle the player just entered.
+  - `vehicleType: VehicleType` — carried so subscribers (camera rig selector) do not need a snapshot lookup.
+- **Published by**:
+  - `VehicleStore.enter(vehicleId:)` — only when the id is known AND the player is not already occupying a vehicle.
+- **Subscribed by**: — (Phase 2 Beta: RootView will re-parent `PerspectiveCamera` to the vehicle root, hide the player mesh).
+
+### `VehicleExited`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Vehicles/VehicleEvents.swift)
+- **Declaration**: `VehicleEvents.swift` — `public struct VehicleExited: GameEvent, Equatable`
+- **Status**: 🟡 Defined — published from the Store; the restore-player-camera subscriber lands in the same Phase 2 Beta wave as `VehicleEntered`.
+- **Fields**:
+  - `vehicleId: UUID` — the vehicle just exited; the Store has already cleared `occupiedVehicleId` by the time this fires.
+- **Published by**:
+  - `VehicleStore.exitCurrent()` — only when the player was actually occupying a vehicle.
+- **Subscribed by**: — (Phase 2 Beta: RootView restores the on-foot camera and repositions the player near the vehicle).
+
+### `WorkbenchOpened`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Workbench/WorkbenchEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Workbench/WorkbenchEvents.swift)
+- **Declaration**: `WorkbenchEvents.swift` — `public struct WorkbenchOpened: GameEvent, Equatable`
+- **Status**: 🟡 Defined — published by the Store; no in-tree subscriber yet (Phase 3 Quest / tutorial popup intended).
+- **Fields**:
+  - `openedAt: Date` — wall-clock timestamp; carried so replay logs correlate with quest / dialogue events around the same moment.
+- **Published by**:
+  - `WorkbenchStore.intent(.openWorkbench)` — only on the closed → open transition; calling `.openWorkbench` while already open is a no-op and does NOT re-publish.
+- **Subscribed by**: — (none; Phase 3 Quest / tutorial on the roadmap).
+- **Payload example** (JSON):
+  ```json
+  {
+    "openedAt": "2026-04-22T13:45:00Z"
+  }
+  ```
+
+### `SampleAnalyzed`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Workbench/WorkbenchEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Workbench/WorkbenchEvents.swift)
+- **Declaration**: `WorkbenchEvents.swift` — `public struct SampleAnalyzed: GameEvent, Equatable`
+- **Status**: 🟡 Defined — published by the Store; no in-tree subscriber yet (Phase 3 Quest "analyze N samples" + Encyclopedia auto-unlock intended).
+- **Fields**:
+  - `sampleId: UUID` — id of the `SampleItem` the player is inspecting.
+  - `layerId: String` — stringified layer key (Phase 2 Beta Store emits `"layer_\(index)"`; Phase 3 is expected to switch to the real `SampleLayerRecord.layerId` once the Store holds sample values).
+  - `analyzedAt: Date` — wall-clock timestamp; useful for deduplicating rapid-fire layer selections before awarding a single quest tick.
+- **Published by**:
+  - `WorkbenchStore.intent(.selectLayer(layerIndex:))` — only when the workbench is open AND a sample is currently selected AND `layerIndex` is non-nil. Clearing the layer (`nil`) deliberately does NOT publish.
+- **Subscribed by**: — (none; Phase 3 Quest / Encyclopedia on the roadmap).
+- **Payload example** (JSON):
+  ```json
+  {
+    "sampleId": "11111111-1111-1111-1111-111111111111",
+    "layerId": "layer_2",
+    "analyzedAt": "2026-04-22T13:45:12Z"
+  }
+  ```
+
+### `QuestStarted`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift)
+- **Declaration**: `QuestEvents.swift` — `public struct QuestStarted: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet (Phase 2 Alpha: quest tracker HUD + guidance arrow).
+- **Fields**:
+  - `questId: String` — `Quest.id` of the newly-started quest (e.g. `"q.lab.intro"`).
+- **Published by**:
+  - `QuestStore.startQuest(id:)` — only on the `.notStarted` → `.inProgress` transition. Re-sending `.start` for a quest already in progress is a no-op and does NOT re-publish.
+- **Subscribed by**: — (none yet; Phase 2 Alpha quest tracker on the roadmap).
+- **Payload example** (JSON):
+  ```json
+  {
+    "questId": "q.lab.intro"
+  }
+  ```
+
+### `ObjectiveCompleted`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift)
+- **Declaration**: `QuestEvents.swift` — `public struct ObjectiveCompleted: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet.
+- **Fields**:
+  - `questId: String` — id of the quest the objective belongs to.
+  - `objectiveId: String` — id of the objective that just flipped (e.g. `"q.field.phase.collect_samples"`).
+- **Published by**:
+  - `QuestStore.completeObjective(questId:objectiveId:)` — guarded by `!objectives[oIdx].completed` so re-marking a done objective is silent.
+  - Indirectly from `QuestStore.handleSampleCreated(_:)` when the field-phase sample counter reaches `fieldPhaseSampleTarget` (3).
+- **Subscribed by**: — (none yet).
+- **Payload example** (JSON):
+  ```json
+  {
+    "questId": "q.field.phase",
+    "objectiveId": "q.field.phase.collect_samples"
+  }
+  ```
+
+### `QuestCompleted`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift)
+- **Declaration**: `QuestEvents.swift` — `public struct QuestCompleted: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet (Phase 2 Alpha: auto-start successor quest + cutscene trigger).
+- **Fields**:
+  - `questId: String` — id of the quest that just entered `.completed`.
+- **Published by**:
+  - `QuestStore.finalizeCompletion(questIndex:)` — reached from `completeObjective(...)` when all objectives are satisfied, or from `.markComplete(questId:)` as an admin shortcut. Fires BEFORE any follow-on `RewardGranted` events so UI can animate "quest complete!" before the unlock toast lands.
+- **Subscribed by**: — (none yet).
+- **Payload example** (JSON):
+  ```json
+  {
+    "questId": "q.lab.intro"
+  }
+  ```
+
+### `RewardGranted`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Quest/QuestEvents.swift)
+- **Declaration**: `QuestEvents.swift` — `public struct RewardGranted: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet (Phase 2 Alpha: inventory unlock UI for `.unlockTool`, story-flag listeners for `.markStoryFlag`).
+- **Fields**:
+  - `questId: String` — id of the quest the reward belongs to.
+  - `reward: QuestReward` — either `.unlockTool(toolId:)` or `.markStoryFlag(key:)`. Subscribers pattern-match.
+- **Published by**:
+  - `QuestStore.finalizeCompletion(questIndex:)` — one event per reward attached to the quest, deduped via `grantedRewardKeys` so re-completing a quest never double-fires.
+- **Subscribed by**: — (none yet).
+- **Payload example** (JSON):
+  ```json
+  {
+    "questId": "q.lab.intro",
+    "reward": { "unlockTool": { "toolId": "hammer" } }
+  }
+  ```
+
+### `DialoguePlayed`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueEvents.swift)
+- **Declaration**: `DialogueEvents.swift` — `public struct DialoguePlayed: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet (Phase 2 Alpha: dialogue view + AudioBridge BGM swap).
+- **Fields**:
+  - `sequenceId: String` — id of the sequence that began playing (typically the JSON file basename, e.g. `"quest1.1"`).
+- **Published by**:
+  - `DialogueStore.playSequence(_:)` — on every `.play(sequence:)` intent, including the empty-sequence fast-path (which fires `DialoguePlayed` followed immediately by `DialogueFinished`).
+- **Subscribed by**: — (none yet).
+- **Payload example** (JSON):
+  ```json
+  {
+    "sequenceId": "quest1.1"
+  }
+  ```
+
+### `DialogueAdvanced`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueEvents.swift)
+- **Declaration**: `DialogueEvents.swift` — `public struct DialogueAdvanced: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet.
+- **Fields**:
+  - `sequenceId: String` — id of the currently-playing sequence.
+  - `lineIndex: Int` — zero-based index of the newly-visible line.
+- **Published by**:
+  - `DialogueStore.advance()` — only when the post-advance state is still `.playing`. The advance that *finishes* the sequence publishes `DialogueFinished` instead; there is no `DialogueAdvanced` pointing at the line after the end.
+- **Subscribed by**: — (none yet).
+- **Payload example** (JSON):
+  ```json
+  {
+    "sequenceId": "quest1.1",
+    "lineIndex": 1
+  }
+  ```
+
+### `DialogueFinished`
+
+- **File**: [`Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueEvents.swift`](../../Packages/SDGGameplay/Sources/SDGGameplay/Dialogue/DialogueEvents.swift)
+- **Declaration**: `DialogueEvents.swift` — `public struct DialogueFinished: GameEvent, Equatable`
+- **Status**: 🟡 Defined — Store publishes; no in-tree subscriber yet (Phase 2 Alpha: `QuestStore` will listen to auto-complete some objectives when a specific sequence ends).
+- **Fields**:
+  - `sequenceId: String` — id of the sequence that just finished.
+  - `skipped: Bool` — `true` if the user fired `.skipAll`, `false` if playback advanced past the last line naturally or the sequence was empty. Quest objectives gated on completion should treat both as "the cutscene is over".
+- **Published by**:
+  - `DialogueStore.advance()` — when advancing past the last line.
+  - `DialogueStore.skipAll()` — immediate transition from `.playing` → `.finished(skipped: true)`.
+  - `DialogueStore.playSequence(_:)` — empty-sequence fast-path (fires after `DialoguePlayed`).
+- **Subscribed by**: — (none yet).
+- **Payload example** (JSON):
+  ```json
+  {
+    "sequenceId": "quest1.1",
+    "skipped": false
   }
   ```
 
