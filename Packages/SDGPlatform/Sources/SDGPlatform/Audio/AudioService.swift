@@ -217,15 +217,29 @@ open class AudioService {
 
     /// Resolve a cue to a concrete bundle URL, sampling variants as
     /// needed. `nil` if none of the candidates exist in the bundle.
+    ///
+    /// Lookup tries two layouts so the same code works for both the
+    /// production app bundle (where the iOS resource-bundling step
+    /// flattens every `.ogg` into the bundle root) AND for SPM test
+    /// bundles that preserve the `Audio/SFX/<category>/` tree.
     private func pickURL(for effect: AudioEffect) -> URL? {
         let candidates = effect.resolveResourceNames()
-        // Filter to only those present in the bundle — tests and
-        // partially-populated bundles otherwise yield random misses.
         let resolved: [URL] = candidates.compactMap { basename in
-            bundle.url(
+            // 1. Subdirectory layout (SPM `Bundle.module`, or any
+            //    bundle where Resources are added as a folder reference).
+            if let url = bundle.url(
                 forResource: basename,
                 withExtension: "ogg",
                 subdirectory: "\(subdirectory)/\(effect.category)"
+            ) {
+                return url
+            }
+            // 2. Flat layout (iOS app bundle — Xcode's "Copy Bundle
+            //    Resources" build phase flattens individual file
+            //    references into the bundle root).
+            return bundle.url(
+                forResource: basename,
+                withExtension: "ogg"
             )
         }
         return resolved.randomElement()

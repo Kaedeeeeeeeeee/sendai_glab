@@ -49,11 +49,15 @@ public final class PlayerControlSystem: System {
     /// want `.after(PhysicsSystem.self)` here.
     public static let dependencies: [SystemDependency] = []
 
-    /// Forward speed at full-stick, metres per second. Tuned by eye
-    /// for the 5 km sendai corridor walking pace: slightly faster
-    /// than real-world walking (≈1.4 m/s) so traversal isn't tedious
-    /// but slow enough to read the geology on passing outcrops.
-    public static let moveSpeed: Float = 2.0
+    /// Forward speed at full-stick, metres per second. Phase 2 Alpha
+    /// bumped from 2.0 → 8.0 after a real-device playtest: PLATEAU
+    /// tiles are ~1 km square, so the original "comfortable walking"
+    /// speed left the player marooned in the middle of the corridor
+    /// unable to reach the buildings visible in the distance. 8 m/s
+    /// ≈ slow jogging, still slow enough to read passing geology,
+    /// fast enough to traverse the 5 km走廊 in a few minutes. Phase 3
+    /// will add a sprint button so this default can come back down.
+    public static let moveSpeed: Float = 8.0
 
     /// Maximum absolute pitch, radians. ±80° ≈ ±1.396 rad. Keeps the
     /// camera from flipping past vertical.

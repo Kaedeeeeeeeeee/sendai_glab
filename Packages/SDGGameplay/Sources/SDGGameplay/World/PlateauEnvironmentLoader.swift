@@ -142,8 +142,13 @@ public final class PlateauEnvironmentLoader {
             )
         }
 
-        // 3. Centre on the AABB.
-        EnvironmentCenterer.centerAtOrigin(entity)
+        // 3. Centre horizontally + snap lowest vertex to Y=0. PLATEAU
+        //    nusamai output keeps real-world geographic elevation, so
+        //    AABB-centre alignment puts half the tile underground.
+        //    Bottom-snap keeps buildings on the ground plane while
+        //    hill-top buildings remain elevated relative to valley
+        //    ones — visually honest until Phase 2 Beta brings DEM.
+        EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
 
         // 4. Toonify.
         let palette = Self.warmToonColour(for: tile)
