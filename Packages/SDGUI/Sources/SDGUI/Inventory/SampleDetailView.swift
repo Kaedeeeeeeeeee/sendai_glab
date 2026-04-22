@@ -48,6 +48,13 @@ public struct SampleDetailView: View {
     /// `.intent(.delete(...))` call reaches the observable state.
     @Bindable public var inventoryStore: InventoryStore
 
+    /// SwiftUI dismiss action. Used after `.delete` to pop this view
+    /// back to the inventory grid explicitly — the parent's
+    /// `navigationDestination(item:)` does NOT auto-fire because the
+    /// selection binding is a snapshot `SampleItem`, not a reference
+    /// into `inventoryStore.samples`.
+    @Environment(\.dismiss) private var dismiss
+
     /// Local draft for the note editor. Seeded from
     /// `sample.customNote ?? ""` in `init` and pushed back into the
     /// store on every change. Keeping it in `@State` (rather than
@@ -154,15 +161,21 @@ public struct SampleDetailView: View {
         }
     }
 
-    /// Destructive delete row. After the store handles `.delete`, the
-    /// parent `InventoryView`'s `navigationDestination(item:)` binding
-    /// goes `nil` (the sample is no longer in `samples`) and SwiftUI
-    /// pops this view automatically — no imperative `dismiss()` needed.
+    /// Destructive delete row. Dismisses itself explicitly after the
+    /// store handles `.delete` — the parent's
+    /// `navigationDestination(item:)` selection binding holds a
+    /// snapshot `SampleItem`, so it does not auto-nil when the sample
+    /// leaves `inventoryStore.samples`. Calling `dismiss()` here gives
+    /// an unambiguous "confirm delete → return to grid" UX.
     private var deleteSection: some View {
         Section {
             Button(role: .destructive) {
                 let store = inventoryStore
                 let id = sample.id
+                // Pop back to the grid first so the user sees the
+                // remove happen on a page transition, then let the
+                // store's async intent propagate.
+                dismiss()
                 Task { @MainActor in
                     await store.intent(.delete(id))
                 }
