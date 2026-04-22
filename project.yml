@@ -60,6 +60,12 @@ targets:
         buildPhase: resources
         excludes:
           - "**/.gitkeep"
+          # GLBs are the intermediate nusamai output kept in the repo
+          # for re-conversion; the app loads only the .usdz siblings
+          # produced by Tools/plateau-pipeline/convert_environment_glbs.sh.
+          # Bundling raw GLBs would cost ~16 MB of user download with
+          # zero runtime benefit.
+          - "Environment/*.glb"
     dependencies:
       - package: SDGCore
       - package: SDGGameplay

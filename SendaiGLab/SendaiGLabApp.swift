@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import SDGCore
 import SDGGameplay
 import SDGUI
@@ -20,6 +21,27 @@ struct SendaiGLabApp: App {
     /// through the environment. Stored as `let` so nothing can swap
     /// it out mid-session.
     let environment = AppEnvironment()
+
+    init() {
+        // Configure AVAudioSession once at app launch so SFX mix with
+        // the user's background music instead of stopping it. `.ambient`
+        // means "we produce sound that is layered on top of whatever
+        // else is playing"; there's no recording, no interruption of
+        // iPod/Spotify, no ducking.
+        //
+        // Failure here is non-fatal — the app still runs silently if
+        // audio session setup fails on some obscure device.
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .ambient,
+                mode: .default,
+                options: [.mixWithOthers]
+            )
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("[SDG-Lab] AVAudioSession setup failed: \(error)")
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

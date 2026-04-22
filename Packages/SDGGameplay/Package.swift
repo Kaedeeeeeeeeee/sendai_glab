@@ -2,7 +2,13 @@
 import PackageDescription
 
 // SDGGameplay contains Stores, Events, and ECS systems.
-// Depends on SDGCore only. No SwiftUI, no RealityKit-specific views.
+// Depends on SDGCore and — from Phase 2 Alpha — SDGPlatform. The
+// Platform dep is one-directional (Gameplay → Platform, never the
+// reverse) and is used only by the Audio/ sub-module to consume the
+// platform-side `AudioService` façade from an event bridge. ADR-0001
+// §"Dependency direction": `SDGGameplay` may read Platform services as
+// long as Platform does not import Gameplay types.
+// No SwiftUI, no RealityKit-specific views.
 // See Docs/ArchitectureDecisions/0001-layered-architecture.md.
 // Tools-version rationale: see SDGCore/Package.swift.
 
@@ -27,13 +33,15 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../SDGCore")
+        .package(path: "../SDGCore"),
+        .package(path: "../SDGPlatform")
     ],
     targets: [
         .target(
             name: "SDGGameplay",
             dependencies: [
-                .product(name: "SDGCore", package: "SDGCore")
+                .product(name: "SDGCore", package: "SDGCore"),
+                .product(name: "SDGPlatform", package: "SDGPlatform")
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")
