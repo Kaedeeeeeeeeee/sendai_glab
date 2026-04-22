@@ -158,10 +158,16 @@ public struct RootView: View {
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
 
+    /// Subscribes to DialogueFinished and QuestCompleted events and
+    /// dispatches the matching `QuestStore.Intent` per the built-in
+    /// `StoryProgressionMap`. Replaces the Phase 2 Beta hand-wired
+    /// `dialogueFinishedToken` that only knew about the chapter-1 intro.
+    /// Started in `bootstrap()`, torn down in `teardown()`.
+    @State private var storyProgressionBridge: StoryProgressionBridge?
+
     /// Subscription tokens for the Phase 2 Beta event handlers, all
     /// torn down in `teardown()`.
     @State private var vehicleSummonedToken: SubscriptionToken?
-    @State private var dialogueFinishedToken: SubscriptionToken?
 
     /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
     /// device width on iPad landscape; a 1000-pt drag rotating by one
@@ -524,19 +530,23 @@ public struct RootView: View {
             await handleVehicleSummoned(event)
         }
 
-        // When the chapter intro dialogue finishes, kick off the
-        // first quest so the QuestTracker becomes visible. Phase 3
-        // will replace this with a proper QuestCoordinator that
-        // chains all 13 quests.
-        dialogueFinishedToken = await bus.subscribe(DialogueFinished.self) { event in
-            // Only the chapter-1 intro should trigger the auto-start;
-            // ignore any other dialogue (e.g. mid-game NPC banter).
-            guard event.sequenceId == "quest1.1" else { return }
-            let store = questStore
-            Task { @MainActor in
-                await store.intent(.start(questId: "q.lab.intro"))
-            }
-        }
+        // StoryProgressionBridge: data-driven quest / dialogue chain.
+        // Replaces the Phase 2 Beta hand-wiring that only knew about
+        // quest1.1 → q.lab.intro. The bridge now covers all 10
+        // dialogue→objective bindings + 12 quest→successor links;
+        // edits happen in `StoryProgressionMap.builtIn`, not here.
+        let storyBridge = StoryProgressionBridge(eventBus: bus, questStore: questStore)
+        await storyBridge.start()
+        storyProgressionBridge = storyBridge
+
+        // Kick off the very first quest so the rest of the chain has
+        // somewhere to cascade from. `.start` on an already in-progress
+        // or completed quest is a no-op, so this is safe across
+        // sessions (re-launching a partway save doesn't clobber state).
+        // Without this, the bridge's `.completeObjective` for quest1.1
+        // would no-op because QuestStore rejects objective completion
+        // on `.notStarted` quests.
+        await questStore.intent(.start(questId: "q.lab.intro"))
 
         // Developer-facing debug: log every move intent. Real HUD
         // subscribers land in Phase 2.
@@ -617,14 +627,11 @@ public struct RootView: View {
             Task { await bus.cancel(token) }
             vehicleSummonedToken = nil
         }
-        if let token = dialogueFinishedToken {
-            Task { await bus.cancel(token) }
-            dialogueFinishedToken = nil
-        }
         let ds = drillingStore
         let inv = inventoryStore
         let orch = orchestrator
         let bridge = audioBridge
+        let storyBridge = storyProgressionBridge
         let qs = questStore
         Task {
             await ds.stop()
@@ -632,8 +639,10 @@ public struct RootView: View {
             await qs.stop()
             if let orch { await orch.stop() }
             if let bridge { await bridge.stop() }
+            if let storyBridge { await storyBridge.stop() }
         }
         audioBridge = nil
+        storyProgressionBridge = nil
         audioService.stopAll()
         playerStore.detach()
     }
