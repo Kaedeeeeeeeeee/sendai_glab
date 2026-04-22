@@ -26,23 +26,23 @@ Phase 2 の Placeholder であり、Phase 3 以降に差し替え・追加され
 
 | ファイル | 用途 | 元素材 | 元パック |
 |---|---|---|---|
-| UI_Tap.ogg         | 標準ボタンタップ                   | click1.ogg         | UI Audio |
-| UI_TapAlt.ogg      | バリエーションタップ(連打抑制用)   | click3.ogg         | UI Audio |
-| UI_TabSelect.ogg   | タブ切替・リスト選択               | select_001.ogg     | Interface Sounds |
-| UI_Hover.ogg       | ホバー/フォーカス移動              | rollover1.ogg      | UI Audio |
-| UI_Toggle.ogg      | トグル・チェックボックス           | switch_001.ogg     | Interface Sounds |
-| UI_Close.ogg       | モーダル/パネルを閉じる           | close_001.ogg      | Interface Sounds |
-| UI_Open.ogg        | モーダル/パネルを開く             | open_001.ogg       | Interface Sounds |
+| UI_Tap.m4a         | 標準ボタンタップ                   | click1.m4a         | UI Audio |
+| UI_TapAlt.m4a      | バリエーションタップ(連打抑制用)   | click3.m4a         | UI Audio |
+| UI_TabSelect.m4a   | タブ切替・リスト選択               | select_001.m4a     | Interface Sounds |
+| UI_Hover.m4a       | ホバー/フォーカス移動              | rollover1.m4a      | UI Audio |
+| UI_Toggle.m4a      | トグル・チェックボックス           | switch_001.m4a     | Interface Sounds |
+| UI_Close.m4a       | モーダル/パネルを閉じる           | close_001.m4a      | Interface Sounds |
+| UI_Open.m4a        | モーダル/パネルを開く             | open_001.m4a       | Interface Sounds |
 
 ### `drill/` — 掘削
 
 | ファイル | 用途 | 元素材 | 元パック |
 |---|---|---|---|
-| Drill_Impact_01.ogg | ドリル打撃 (variant 1) | impactMining_000.ogg    | Impact Sounds |
-| Drill_Impact_02.ogg | ドリル打撃 (variant 2) | impactMining_001.ogg    | Impact Sounds |
-| Drill_Impact_03.ogg | ドリル打撃 (variant 3) | impactMining_002.ogg    | Impact Sounds |
-| Drill_Impact_04.ogg | ドリル打撃 (variant 4) | impactMining_003.ogg    | Impact Sounds |
-| Drill_Metal_Heavy.ogg | ドリル設置/撤去の金属音 | impactMetal_heavy_000.ogg | Impact Sounds |
+| Drill_Impact_01.m4a | ドリル打撃 (variant 1) | impactMining_000.m4a    | Impact Sounds |
+| Drill_Impact_02.m4a | ドリル打撃 (variant 2) | impactMining_001.m4a    | Impact Sounds |
+| Drill_Impact_03.m4a | ドリル打撃 (variant 3) | impactMining_002.m4a    | Impact Sounds |
+| Drill_Impact_04.m4a | ドリル打撃 (variant 4) | impactMining_003.m4a    | Impact Sounds |
+| Drill_Metal_Heavy.m4a | ドリル設置/撤去の金属音 | impactMetal_heavy_000.m4a | Impact Sounds |
 
 ランダム再生は 4 variant の中からサンプリングすることでループ感を抑える想定。
 
@@ -50,12 +50,12 @@ Phase 2 の Placeholder であり、Phase 3 以降に差し替え・追加され
 
 | ファイル | 用途 | 元素材 | 元パック |
 |---|---|---|---|
-| Footstep_Grass_01.ogg    | 草地 (variant 1) | footstep_grass_000.ogg    | Impact Sounds |
-| Footstep_Grass_02.ogg    | 草地 (variant 2) | footstep_grass_001.ogg    | Impact Sounds |
-| Footstep_Concrete_01.ogg | 舗装路 (variant 1) | footstep_concrete_000.ogg | Impact Sounds |
-| Footstep_Concrete_02.ogg | 舗装路 (variant 2) | footstep_concrete_001.ogg | Impact Sounds |
-| Footstep_Wood_01.ogg     | 木板 (variant 1) | footstep_wood_000.ogg     | Impact Sounds |
-| Footstep_Wood_02.ogg     | 木板 (variant 2) | footstep_wood_001.ogg     | Impact Sounds |
+| Footstep_Grass_01.m4a    | 草地 (variant 1) | footstep_grass_000.m4a    | Impact Sounds |
+| Footstep_Grass_02.m4a    | 草地 (variant 2) | footstep_grass_001.m4a    | Impact Sounds |
+| Footstep_Concrete_01.m4a | 舗装路 (variant 1) | footstep_concrete_000.m4a | Impact Sounds |
+| Footstep_Concrete_02.m4a | 舗装路 (variant 2) | footstep_concrete_001.m4a | Impact Sounds |
+| Footstep_Wood_01.m4a     | 木板 (variant 1) | footstep_wood_000.m4a     | Impact Sounds |
+| Footstep_Wood_02.m4a     | 木板 (variant 2) | footstep_wood_001.m4a     | Impact Sounds |
 
 素材選定の理由:Phase 2 の仙台 Plateau 地表は草(公園)・舗装(道路)・木(桟橋・縁側)が中心。
 雪・カーペット等は除外(本ゲームのロケーションに合わない)。
@@ -64,18 +64,20 @@ Phase 2 の Placeholder であり、Phase 3 以降に差し替え・追加され
 
 | ファイル | 用途 | 元素材 | 元パック |
 |---|---|---|---|
-| Feedback_Success.ogg | Quest 達成・標本取得成功 | confirmation_001.ogg | Interface Sounds |
-| Feedback_Failure.ogg | 失敗・エラー             | error_003.ogg        | Interface Sounds |
-| Feedback_Notify.ogg  | 新着通知・ヒント出現     | question_001.ogg     | Interface Sounds |
-| Feedback_Chime.ogg   | 章切り替え・重要イベント | bong_001.ogg         | Interface Sounds |
+| Feedback_Success.m4a | Quest 達成・標本取得成功 | confirmation_001.m4a | Interface Sounds |
+| Feedback_Failure.m4a | 失敗・エラー             | error_003.m4a        | Interface Sounds |
+| Feedback_Notify.m4a  | 新着通知・ヒント出現     | question_001.m4a     | Interface Sounds |
+| Feedback_Chime.m4a   | 章切り替え・重要イベント | bong_001.m4a         | Interface Sounds |
 
 ---
 
 ## フォーマット
 
-- 全 `.ogg`(Vorbis)
-- iOS は `AVAudioPlayer` / RealityKit の `AudioFileResource` で直接再生可能
-- 合計 **22 ファイル / ~220 KB**(Phase 2 起步のベースライン)
+- 全 `.m4a`(AAC, 96 kbps)
+- iOS `AVAudioPlayer` はネイティブ対応(Ogg Vorbis は非対応で無音になる)
+- Kenney から import した OGG 原本は `Tools/audio-pipeline/source/Audio/SFX/` に保管
+- 再変換は `bash Tools/audio-pipeline/transcode_ogg_to_m4a.sh`
+- 合計 **22 ファイル**(Phase 2 起步のベースライン)
 
 ## ライセンス
 

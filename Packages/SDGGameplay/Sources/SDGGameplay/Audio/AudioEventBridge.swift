@@ -115,6 +115,10 @@ public final class AudioEventBridge {
         }
 
         tokens = [drillReqToken, sampleToken, failedToken]
+        // One-shot startup breadcrumb. If audio ever goes silent again,
+        // the absence of this line in Console.app is the first thing
+        // to check — it means bootstrap never got here.
+        print("[SDG-Lab][audio] AudioEventBridge started with \(tokens.count) subscriptions")
     }
 
     /// Cancel every subscription the bridge installed. Safe to call

@@ -36,11 +36,20 @@
 
 import AVFoundation
 import Foundation
+import os
 import SDGCore
 
-/// Platform-side sound-effect player. Plays short `.ogg` cues
+/// Platform-side sound-effect player. Plays short `.m4a` cues
 /// registered in `AudioEffect` from the app bundle (or an injected
 /// test bundle).
+///
+/// **Container choice** (Phase 3 audio-fix, 2026-04-22): the cues ship
+/// as AAC-in-M4A, not Ogg Vorbis. iOS `AVAudioPlayer` does not decode
+/// Ogg natively, so the Phase 2 OGG drop played silently with no
+/// surfaced error (`AVAudioPlayer(contentsOf:)` threw
+/// `OSStatus -39`). Tools/audio-pipeline/transcode_ogg_to_m4a.sh
+/// transcodes Kenney's OGG originals on import; OGG sources live under
+/// `Tools/audio-pipeline/source/` for re-runs.
 ///
 /// The service is `@MainActor`-isolated because `AVAudioPlayer` is not
 /// `Sendable`; see the file header for the rationale.
@@ -60,7 +69,7 @@ open class AudioService {
     /// asset never crashes the game in production.
     public enum AudioError: Error, Sendable {
         /// The requested effect resolved to a resource name, but the
-        /// bundle didn't contain a file with that name + `.ogg`.
+        /// bundle didn't contain a file with that name + `.m4a`.
         case resourceNotFound(basename: String, category: String)
         /// `AVAudioPlayer(contentsOf:)` threw. Wrapped for logging.
         case playerInitFailed(String)
@@ -73,10 +82,19 @@ open class AudioService {
     /// suite doesn't rely on the host app having the SFX stapled in.
     private let bundle: Bundle
 
-    /// Sub-directory inside the bundle where `<category>/<basename>.ogg`
+    /// Sub-directory inside the bundle where `<category>/<basename>.m4a`
     /// files live. Production ships the tree at
     /// `Resources/Audio/SFX/`, so this default matches.
     private let subdirectory: String
+
+    /// Unified logger channel for audio diagnostics. Routes to the
+    /// system log so device playback issues show up in Console.app
+    /// under "SendaiGLab → audio". Kept static-like (let on init)
+    /// to avoid re-registering the subsystem per instance.
+    private static let log = Logger(
+        subsystem: "jp.tohoku-gakuin.fshera.sendai-glab",
+        category: "audio"
+    )
 
     // MARK: - State
 
@@ -157,8 +175,13 @@ open class AudioService {
     open func play(_ effect: AudioEffect, volume: Float = 1.0) -> UUID? {
         // Pick a URL. Variant cues sample uniformly; single-file cues
         // return the lone URL. A nil here means "no candidate bundle
-        // resource at all" — bail out silently.
+        // resource at all" — bail out after shouting so Phase 2's
+        // "silent no-op" failure mode can't resurface unnoticed.
+        // `print` rather than `os.log`: the Phase 2 audio bug taught us
+        // that os.log's default filter can hide diagnostic debug-level
+        // entries in Console.app; plain print always shows up.
         guard let url = pickURL(for: effect) else {
+            print("[SDG-Lab][audio] play(\(effect.rawValue)): NO URL resolved (check bundle layout / extension)")
             return nil
         }
 
@@ -173,7 +196,11 @@ open class AudioService {
             if !cached.isPlaying {
                 cached.currentTime = 0
                 cached.volume = effectiveVolume
-                return cached.play() ? UUID() : nil
+                let ok = cached.play()
+                if !ok {
+                    print("[SDG-Lab][audio] cached AVAudioPlayer.play() returned false for \(url.lastPathComponent)")
+                }
+                return ok ? UUID() : nil
             }
             // Busy: fall through to make a fresh one-shot instance.
         } else {
@@ -181,7 +208,11 @@ open class AudioService {
             // play once. Keeps the hot path at one allocation per cue.
             if let player = makePlayer(url: url, volume: effectiveVolume) {
                 cache[effect, default: [:]][url] = player
-                return player.play() ? UUID() : nil
+                let ok = player.play()
+                if !ok {
+                    print("[SDG-Lab][audio] fresh AVAudioPlayer.play() returned false for \(url.lastPathComponent) — session likely inactive")
+                }
+                return ok ? UUID() : nil
             }
             return nil
         }
@@ -220,7 +251,7 @@ open class AudioService {
     ///
     /// Lookup tries two layouts so the same code works for both the
     /// production app bundle (where the iOS resource-bundling step
-    /// flattens every `.ogg` into the bundle root) AND for SPM test
+    /// flattens every `.m4a` into the bundle root) AND for SPM test
     /// bundles that preserve the `Audio/SFX/<category>/` tree.
     private func pickURL(for effect: AudioEffect) -> URL? {
         let candidates = effect.resolveResourceNames()
@@ -229,7 +260,7 @@ open class AudioService {
             //    bundle where Resources are added as a folder reference).
             if let url = bundle.url(
                 forResource: basename,
-                withExtension: "ogg",
+                withExtension: "m4a",
                 subdirectory: "\(subdirectory)/\(effect.category)"
             ) {
                 return url
@@ -239,7 +270,15 @@ open class AudioService {
             //    references into the bundle root).
             return bundle.url(
                 forResource: basename,
-                withExtension: "ogg"
+                withExtension: "m4a"
+            )
+        }
+        if resolved.isEmpty {
+            // Surface missing-resource failures at debug level so a
+            // typo in a new cue or a Resources-phase regression is
+            // obvious in Console.app without being noisy in release.
+            Self.log.debug(
+                "pickURL: no m4a resource for \(effect.category, privacy: .public)/\(candidates.joined(separator: "|"), privacy: .public)"
             )
         }
         return resolved.randomElement()
@@ -256,9 +295,13 @@ open class AudioService {
             player.prepareToPlay()
             return player
         } catch {
-            // Deliberately swallow: SFX failures should not interrupt
-            // the player. Production will attach os.log; tests simply
-            // observe the `nil` return.
+            // Surface the failure via os.log so the next bad asset
+            // doesn't disappear the way the whole Phase 2 OGG drop
+            // did. `.error` level so Console.app highlights it by
+            // default; caller still fire-and-forgets.
+            Self.log.error(
+                "AVAudioPlayer init failed: \(url.lastPathComponent, privacy: .public) — \(error.localizedDescription, privacy: .public)"
+            )
             return nil
         }
     }

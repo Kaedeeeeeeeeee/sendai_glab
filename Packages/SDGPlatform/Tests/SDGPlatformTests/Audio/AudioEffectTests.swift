@@ -11,7 +11,7 @@ import XCTest
 final class AudioEffectTests: XCTestCase {
 
     /// Every declared cue must report a non-empty `category`. A blank
-    /// category would cause `AudioService` to build `/Audio/SFX//Foo.ogg`
+    /// category would cause `AudioService` to build `/Audio/SFX//Foo.m4a`
     /// which silently misses the file — we'd rather catch that here.
     func testEveryCaseHasNonEmptyCategory() {
         for effect in AudioEffect.allCases {

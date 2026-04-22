@@ -109,4 +109,45 @@ final class AudioServiceTests: XCTestCase {
         )
         XCTAssertNil(service.play(.uiTap))
     }
+
+    // MARK: - Real file loading (regression guard)
+
+    /// Loads a real `.m4a` fixture through the full pipeline to prove
+    /// `AVAudioPlayer` can decode what we ship. This catches the class
+    /// of bug the Phase 2 OGG drop hit — silent decoder refusal across
+    /// every cue.
+    ///
+    /// The fixture is copied by SPM from `Fixtures/Audio/SFX/ui/` (see
+    /// `Package.swift`); on iOS `Bundle.module` exposes it via the
+    /// bundle's resource root after processing.
+    func testPlayResolvesAndCachesForRealM4AFixture() throws {
+        let fixtureBundle = Bundle.module
+        // `.copy("Fixtures")` in Package.swift preserves the folder
+        // name, so the fixture lives at `Fixtures/Audio/SFX/ui/`
+        // inside the test bundle. Skip (rather than fail) if SPM's
+        // resource copying didn't run — that way this test stays
+        // informative without becoming a platform-portability trap.
+        guard fixtureBundle.url(
+            forResource: "UI_Tap",
+            withExtension: "m4a",
+            subdirectory: "Fixtures/Audio/SFX/ui"
+        ) != nil else {
+            throw XCTSkip("Fixture UI_Tap.m4a not present in test bundle")
+        }
+
+        let service = AudioService(
+            bundle: fixtureBundle,
+            subdirectory: "Fixtures/Audio/SFX"
+        )
+        // We don't assert on the return UUID: `play().play()` depends
+        // on a real audio session on CI's headless runner, which isn't
+        // reliable. What we CAN verify is that the lookup + player
+        // init succeeded, recorded as a cache entry.
+        _ = service.play(.uiTap)
+        XCTAssertGreaterThan(
+            service.cachedPlayerCount(for: .uiTap),
+            0,
+            "Expected AudioService to cache an AVAudioPlayer for a real m4a fixture — \(#function) regression"
+        )
+    }
 }

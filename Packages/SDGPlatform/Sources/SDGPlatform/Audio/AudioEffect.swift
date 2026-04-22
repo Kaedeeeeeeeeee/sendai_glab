@@ -8,15 +8,15 @@
 // Gameplay code shouldn't care whether a "drill impact" is one file or
 // four variants randomly sampled — that's a resource-layout concern.
 // Callers say `audioService.play(.drillImpactRandom)` and the service
-// resolves to a concrete `.ogg` URL (picking a variant if appropriate).
+// resolves to a concrete `.m4a` URL (picking a variant if appropriate).
 //
 // ## File / folder layout
 //
-// Files live under `Resources/Audio/SFX/<category>/<basename>.ogg`; see
+// Files live under `Resources/Audio/SFX/<category>/<basename>.m4a`; see
 // `Resources/Audio/README.md` for the canonical manifest. Each
 // `AudioEffect` case owns:
 //   - a `category` (`ui` / `drill` / `footstep` / `feedback`)
-//   - one or more candidate *basenames* (filename without `.ogg`)
+//   - one or more candidate *basenames* (filename without `.m4a`)
 // Cases whose rawValue contains the `"*"` wildcard are "variant" cues
 // and resolve to multiple candidates; the service picks one randomly.
 //
@@ -100,7 +100,7 @@ public enum AudioEffect: String, CaseIterable, Sendable {
         }
     }
 
-    /// Candidate resource basenames for this cue (no `.ogg` extension).
+    /// Candidate resource basenames for this cue (no `.m4a` extension).
     ///
     /// - For single-file cues this is a 1-element array.
     /// - For variant cues (rawValue contains `"*"`), returns every

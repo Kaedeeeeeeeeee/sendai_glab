@@ -34,6 +34,14 @@ let package = Package(
         .testTarget(
             name: "SDGPlatformTests",
             dependencies: ["SDGPlatform"],
+            resources: [
+                // Test fixtures for AudioService integration: verifies
+                // that `.m4a` (AAC) assets we actually ship are loadable
+                // through `AVAudioPlayer` — the Phase 2 regression where
+                // all OGG files silently failed would have been caught
+                // by this.
+                .copy("Fixtures")
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")
             ]
