@@ -85,4 +85,45 @@ public enum EnvironmentCenterer {
         entity.position = newPosition
         return (bounds, newPosition)
     }
+
+    /// Centre `entity` horizontally (X/Z) at origin, but vertically
+    /// snap so the **lowest** vertex sits on Y=0.
+    ///
+    /// Designed for PLATEAU buildings: nusamai outputs preserve the
+    /// real-world geographic elevation of every vertex, so a tile
+    /// containing both Aobayama hilltop (≈150 m AMSL) and Hirose-river
+    /// valley (≈30 m AMSL) spans 120 m of vertical range. AABB-centre
+    /// alignment puts half the tile under the ground plane and the
+    /// other half floating in mid-air. Bottom-snap leaves all
+    /// buildings *above* Y=0 with their lowest one resting on the
+    /// ground; hilltop buildings remain elevated relative to valley
+    /// buildings, which matches what a player without DEM terrain
+    /// would intuitively expect.
+    ///
+    /// Permanently fixed by Phase 2 Beta DEM integration; until then
+    /// this is the visually-honest fallback.
+    @MainActor
+    @discardableResult
+    public static func centerHorizontallyAndGroundY(
+        _ entity: Entity
+    ) -> (original: BoundingBox, newPosition: SIMD3<Float>) {
+        let originalPosition = entity.position
+        let bounds = entity.visualBounds(relativeTo: entity.parent)
+
+        if bounds.isEmpty {
+            return (bounds, originalPosition)
+        }
+
+        let centre = bounds.center
+        // X/Z: same as centerAtOrigin (subtract centre).
+        // Y: subtract the *minimum* Y instead of the centre Y, so the
+        // resulting min.y == 0 in parent space.
+        let newPosition = SIMD3<Float>(
+            originalPosition.x - centre.x,
+            originalPosition.y - bounds.min.y,
+            originalPosition.z - centre.z
+        )
+        entity.position = newPosition
+        return (bounds, newPosition)
+    }
 }
