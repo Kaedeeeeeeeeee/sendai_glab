@@ -151,6 +151,19 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Stub LocalSigning.xcconfig
+        # Signing config is gitignored and per-contributor (stores each
+        # person's Team ID). CI builds only for the simulator, which
+        # does NOT require a real signing identity, so a stub with an
+        # empty team is sufficient to satisfy xcodegen's config-file
+        # validation.
+        run: |
+          cat > LocalSigning.xcconfig <<'EOF'
+          // CI stub — simulator builds don't require real code signing.
+          DEVELOPMENT_TEAM =
+          CODE_SIGN_STYLE = Automatic
+          EOF
+
       - name: Generate Xcode project
         run: xcodegen generate
 
