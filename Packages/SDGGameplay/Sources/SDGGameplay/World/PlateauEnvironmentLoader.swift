@@ -237,16 +237,42 @@ public final class PlateauEnvironmentLoader {
         terrainSampler: TerrainHeightSampler,
         basementSkip: Float
     ) {
-        let xz = SIMD2<Float>(tile.position.x, tile.position.z)
-        guard let demY = terrainSampler(xz) else { return }
+        // Read bounds first so we can sample the DEM at the mesh's
+        // actual world XZ centre, not the tile entity's root position.
+        //
+        // Why: the USDZs we ship (Blender-exported with `/root` prim)
+        // can carry a non-identity transform on the intermediate
+        // `/root` node, so the mesh's centre-of-mass in world space
+        // isn't always equal to `tile.position.xz`. Sampling the DEM
+        // at the root position in that case queries terrain under an
+        // offset location — device feedback showed the symptom as
+        // "all buildings flying at different heights" because the
+        // per-tile offset is different per tile. Reading `bounds.center`
+        // goes through the full transform chain and returns the mesh's
+        // true world centre, fixing the cross-tile variance.
         let bounds = tile.visualBounds(relativeTo: nil)
         guard !bounds.isEmpty else { return }
+        let xz = SIMD2<Float>(bounds.center.x, bounds.center.z)
+        guard let demY = terrainSampler(xz) else { return }
         let currentBottomY = bounds.min.y
         // Target: bounds.min.y == demY + basementSkip in world space.
-        // visualBounds is position + local mesh min, so shifting
-        // position by the delta lands the mesh bottom exactly there.
+        // Shifting `position.y` by the delta lands the mesh bottom
+        // exactly there because the position translation carries
+        // through the whole subtree.
         let delta = (demY + basementSkip) - currentBottomY
         tile.position.y += delta
+
+        // Diagnostic breadcrumb — the bug that prompted the
+        // `tile.position → bounds.center` switch would have been
+        // immediately obvious with these numbers in hand. Keeping the
+        // log through Phase 5 QA; remove for ship.
+        print(
+            "[SDG-Lab][p5] snap tile name=\(tile.name) " +
+            "pos=(\(tile.position.x), \(tile.position.z)) " +
+            "center=(\(bounds.center.x), \(bounds.center.z)) " +
+            "bottomY=\(currentBottomY) → demY=\(demY) delta=\(delta) " +
+            "newPosY=\(tile.position.y)"
+        )
     }
 
     /// Load a single tile and replace its materials with Toon variants.
