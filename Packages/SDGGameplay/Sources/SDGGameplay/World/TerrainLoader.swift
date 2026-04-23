@@ -232,6 +232,11 @@ public final class TerrainLoader {
         // decimator produces.
         entity.generateCollisionShapes(recursive: true)
 
+        // Tag so `PlayerControlSystem` (and any future ground-aware
+        // system) can look up this entity via an `EntityQuery` and
+        // call `sampleTerrainY` against its mesh.
+        entity.components.set(TerrainComponent())
+
         entity.name = "PlateauTerrain_\(basename)"
         return entity
     }

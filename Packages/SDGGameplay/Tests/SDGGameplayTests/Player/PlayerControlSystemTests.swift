@@ -117,13 +117,20 @@ final class PlayerControlSystemTests: XCTestCase {
         system.applyInput(to: player, deltaTime: 1.0)
         let after = player.position
 
+        // Accuracy scales with `moveSpeed` because the rotation error
+        // is multiplied through the step vector. Phase 4 bumps
+        // moveSpeed to 800 m/s (testing flight), which 100× the
+        // float noise out of the yaw sin/cos math. `1e-4 * moveSpeed`
+        // keeps the test both strict (relative 0.01 %) and tolerant
+        // of the test-flight-only speed.
+        let tol = PlayerControlSystem.moveSpeed * 1e-4
         XCTAssertEqual(
             after.x - before.x,
             PlayerControlSystem.moveSpeed,
-            accuracy: 1e-5,
+            accuracy: tol,
             "90° right yaw should rotate forward motion onto +X"
         )
-        XCTAssertEqual(after.z - before.z, 0, accuracy: 1e-5)
+        XCTAssertEqual(after.z - before.z, 0, accuracy: tol)
     }
 
     // MARK: - Pitch clamping
