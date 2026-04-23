@@ -36,14 +36,27 @@ public struct DebugActionsBar: View {
     /// Phase 3 will replace this with auto-trigger from quest state.
     public let onStoryTapped: () -> Void
 
+    /// Phase 8: Tap → publish `EarthquakeStarted`. 2-second shake at
+    /// intensity 0.7. Phase 8.1 moves this behind a quest trigger
+    /// (`disasterOnComplete` JSON field).
+    public let onEarthquakeTapped: () -> Void
+
+    /// Phase 8: Tap → publish `FloodStarted`. Rises to `playerY + 2m`
+    /// over 5 s. Phase 8.1 also moves this quest-side.
+    public let onFloodTapped: () -> Void
+
     public init(
         onWorkbenchTapped: @escaping () -> Void,
         onDroneTapped: @escaping () -> Void,
-        onStoryTapped: @escaping () -> Void
+        onStoryTapped: @escaping () -> Void,
+        onEarthquakeTapped: @escaping () -> Void,
+        onFloodTapped: @escaping () -> Void
     ) {
         self.onWorkbenchTapped = onWorkbenchTapped
         self.onDroneTapped = onDroneTapped
         self.onStoryTapped = onStoryTapped
+        self.onEarthquakeTapped = onEarthquakeTapped
+        self.onFloodTapped = onFloodTapped
     }
 
     public var body: some View {
@@ -54,9 +67,13 @@ public struct DebugActionsBar: View {
             HStack {
                 Spacer()
                 VStack(spacing: 12) {
-                    debugButton(symbol: "scope",      bg: .purple, action: onWorkbenchTapped)
-                    debugButton(symbol: "airplane",   bg: .cyan,   action: onDroneTapped)
-                    debugButton(symbol: "book.closed",bg: .pink,   action: onStoryTapped)
+                    debugButton(symbol: "scope",          bg: .purple, action: onWorkbenchTapped)
+                    debugButton(symbol: "airplane",       bg: .cyan,   action: onDroneTapped)
+                    debugButton(symbol: "book.closed",    bg: .pink,   action: onStoryTapped)
+                    // Phase 8 disaster debug buttons. Placed last so
+                    // they read as the most experimental additions.
+                    debugButton(symbol: "waveform.path.ecg", bg: .red,    action: onEarthquakeTapped)
+                    debugButton(symbol: "drop.fill",      bg: .blue,   action: onFloodTapped)
                 }
                 .padding(.trailing, 40)
             }

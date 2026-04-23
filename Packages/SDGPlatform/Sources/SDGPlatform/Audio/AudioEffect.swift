@@ -82,6 +82,20 @@ public enum AudioEffect: String, CaseIterable, Sendable {
     /// Neutral notification (new hint, subtitle prompt).
     case feedbackNotify = "Feedback_Notify"
 
+    // MARK: Disaster cues (Phase 8)
+
+    /// Low-frequency rumble looped during an earthquake. MVP reuses
+    /// the Drill_Metal_Heavy file as a placeholder (the same
+    /// low-end content reads convincingly as ground rumble at
+    /// playback levels below the drill's normal gain); Phase 8.1
+    /// swaps in a bespoke earthquake SFX.
+    case earthquakeRumble = "Earthquake_Rumble"
+
+    /// Rising-water crescendo, played once per flood. MVP reuses
+    /// Feedback_Notify as a placeholder; the fidelity bar is low
+    /// because the visible water plane carries most of the feedback.
+    case floodWater = "Flood_Water"
+
     /// Subdirectory under `Resources/Audio/SFX/` where this cue's
     /// candidate files live. Used by `AudioService` to build the bundle
     /// lookup key. Kept as a plain `String` (not an enum) because the
@@ -97,6 +111,8 @@ public enum AudioEffect: String, CaseIterable, Sendable {
             return "footstep"
         case .feedbackSuccess, .feedbackFailure, .feedbackNotify:
             return "feedback"
+        case .earthquakeRumble, .floodWater:
+            return "disaster"
         }
     }
 

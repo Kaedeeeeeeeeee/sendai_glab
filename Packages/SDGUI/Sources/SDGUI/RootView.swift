@@ -169,6 +169,15 @@ public struct RootView: View {
     /// `VehicleSummoned` so it can spawn the matching scene Entity.
     @State private var vehicleStore: VehicleStore
 
+    /// Phase 8: earthquake / flood state machine. Triggered from
+    /// the 🌋 / 💧 debug buttons for MVP; quest-driven trigger is
+    /// Phase 8.1 work (see ADR-0010).
+    @State private var disasterStore: DisasterStore
+
+    /// Phase 8: bridges `EarthquakeStarted` / `FloodStarted` to
+    /// the platform `AudioService`. Started in `bootstrap()`.
+    @State private var disasterAudioBridge: DisasterAudioBridge?
+
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
 
@@ -215,6 +224,7 @@ public struct RootView: View {
         _dialogueStore = State(initialValue: DialogueStore(eventBus: placeholder))
         _workbenchStore = State(initialValue: WorkbenchStore(eventBus: placeholder))
         _vehicleStore = State(initialValue: VehicleStore(eventBus: placeholder))
+        _disasterStore = State(initialValue: DisasterStore(eventBus: placeholder))
     }
 
     public var body: some View {
@@ -239,7 +249,9 @@ public struct RootView: View {
             DebugActionsBar(
                 onWorkbenchTapped: handleWorkbenchTap,
                 onDroneTapped: handleDroneSummonTap,
-                onStoryTapped: handleStoryStartTap
+                onStoryTapped: handleStoryStartTap,
+                onEarthquakeTapped: handleEarthquakeTap,
+                onFloodTapped: handleFloodTap
             )
 
             // Top-left tracker showing the active quest.
@@ -579,6 +591,39 @@ public struct RootView: View {
         }
     }
 
+    /// 🌋 Phase 8 earthquake debug button. Fires a 2-second shake
+    /// at intensity 0.7 via the Disaster store. `DisasterSystem`
+    /// picks this up next frame.
+    private func handleEarthquakeTap() {
+        let store = disasterStore
+        Task { @MainActor in
+            await store.intent(.triggerEarthquake(
+                intensity: 0.7,
+                durationSeconds: 2.0,
+                questId: nil
+            ))
+        }
+    }
+
+    /// 💧 Phase 8 flood debug button. Rises to `playerY + 2 m` over
+    /// 5 s. The start-Y matches the player's current Y so the flood
+    /// reads as "water rising from where you're standing"; the
+    /// target gives 2 m of visible submersion without filling the
+    /// whole level.
+    private func handleFloodTap() {
+        guard let player = sceneRefs.playerEntity else { return }
+        let playerY = player.position(relativeTo: nil).y
+        let store = disasterStore
+        Task { @MainActor in
+            await store.intent(.triggerFlood(
+                startY: playerY,
+                targetWaterY: playerY + 2,
+                riseSeconds: 5.0,
+                questId: nil
+            ))
+        }
+    }
+
     /// 📖 button → load the chapter-1 intro and have the dialogue
     /// store play it. Phase 3 will trigger this automatically from
     /// quest state instead of a manual button.
@@ -746,6 +791,27 @@ public struct RootView: View {
         vehicleStore = VehicleStore(eventBus: bus)
         await questStore.start()
 
+        // Phase 8: Disaster store + audio bridge. Rebind on the real
+        // bus; bind the System to the fresh Store so
+        // `DisasterSystem.update` sees today's state (and is safe to
+        // unbind in teardown). Tag every PLATEAU corridor tile with
+        // `DisasterShakeTargetComponent` so the earthquake System's
+        // query picks them up.
+        disasterStore = DisasterStore(eventBus: bus)
+        DisasterSystem.boundStore = disasterStore
+        let dBridge = DisasterAudioBridge(
+            eventBus: bus,
+            audioService: audioService
+        )
+        await dBridge.start()
+        disasterAudioBridge = dBridge
+
+        if let corridor = sceneRefs.environmentRoot {
+            for tile in corridor.children {
+                tile.components.set(DisasterShakeTargetComponent())
+            }
+        }
+
         // Subscribe to VehicleSummoned so we materialise the scene
         // entity. The Store only knows snapshots; we own the meshes.
         vehicleSummonedToken = await bus.subscribe(VehicleSummoned.self) { event in
@@ -874,6 +940,7 @@ public struct RootView: View {
         let inv = inventoryStore
         let orch = orchestrator
         let bridge = audioBridge
+        let dBridge = disasterAudioBridge
         let qs = questStore
         Task {
             await ds.stop()
@@ -881,8 +948,14 @@ public struct RootView: View {
             await qs.stop()
             if let orch { await orch.stop() }
             if let bridge { await bridge.stop() }
+            if let dBridge { await dBridge.stop() }
         }
         audioBridge = nil
+        disasterAudioBridge = nil
+        // Clear the Phase 8 System binding so a subsequent view
+        // creation re-binds to the fresh store rather than the
+        // stale one from the previous scene.
+        DisasterSystem.boundStore = nil
         audioService.stopAll()
         playerStore.detach()
     }
@@ -926,6 +999,12 @@ public struct RootView: View {
         PlayerComponent.registerComponent()
         PlayerInputComponent.registerComponent()
         PlayerControlSystem.registerSystem()
+        // Phase 8: Disaster components + System. DisasterSystem's
+        // Store binding happens after bootstrap constructs the Store
+        // (via `DisasterSystem.shared(...).bind(disasterStore:)`).
+        DisasterShakeTargetComponent.registerComponent()
+        DisasterFloodWaterComponent.registerComponent()
+        DisasterSystem.registerSystem()
         systemsRegistered = true
     }
 
