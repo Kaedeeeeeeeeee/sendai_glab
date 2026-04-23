@@ -205,14 +205,47 @@ ADR-0006 に postmortem と Phase 4 計画を記録。本 PR #11 では:
 3. ランタイム側の tile-level rigid shift では上記 2 つを補正できない
 4. 「諦める判断」はコストを抑える上で必要 — 4 次試行した後明らかだった
 
-### Phase 3 残り候補
+### Phase 4 PLATEAU 真対齐 — 完了(2026-04-23、branch `feat/phase-4-citygml-envelope-alignment`)
 
-1. **DEM alignment の完全解決** (ADR-0006 方案 A、Phase 4 最優先)
-2. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
-3. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
-4. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
-5. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
-6. 真の薄片写真(f.shera 研究室素材)
+**ADR-0006 で延期していた DEM 整合を root-cause で解決**。
+
+- [x] `Tools/plateau-pipeline/extract_envelopes.py` + `extract_bldg_gmls.sh`
+      — 各 CityGML の `<gml:Envelope>` を解析、pyproj で EPSG:6697→6677 投影、
+      sidecar JSON に出力
+- [x] `Resources/Environment/plateau_envelopes.json`(1.4 KB、6 tiles)
+      — 5 bldg + 1 dem の real-world 原点を ship
+- [x] `Packages/SDGGameplay/.../World/EnvelopeManifest.swift`
+      — `PlateauEnvelope` 構造体 + manifest loader + `realityKitPosition(for:)`
+      (EPSG:6677 → RK Y-up 座標変換内包)
+- [x] `TerrainLoader.swift` 復活 + manifest 統合(envelope 時は
+      `centerHorizontallyAndGroundY` スキップ)
+- [x] `PlateauEnvironmentLoader.loadDefaultCorridor(manifest:)` — manifest
+      あれば各 tile を `realityKitPosition(tile.rawValue)` で絶対配置、
+      `PlateauTileCenterMode.none` で centering skip、一部欠損時は legacy fallback
+- [x] RootView:bootstrap で manifest 読み込み → 両 loader に注入 →
+      spawn Y = terrain 表面 Y + 0.1m
+- [x] 5 waves 並列 subagent(Python + Swift model 並列 → Terrain + BldgLoader 並列 → main integration)
+- [x] ADR-0007: CityGML envelope alignment
+- [x] 17 新規 tests(EnvelopeManifest 9 + TerrainLoader 5 + EnvLoader 3)
+
+**合計 322 tests / 0 failures**(SDGCore 22 + SDGGameplay **322** + SDGPlatform 20 + SDGUI 49)
+
+**真機実測予定**:f.shera 次回確認。期待:青葉山建築群が山上、川内建築群が谷、spawn で視差感あり。残余 1-5m ズレは DEM 粒度(30m)由来で許容。
+
+### 訂正(ADR-0007 途中で発見)
+
+- **EPSG:6677 は Zone IX、ではなく(仮)Zone X** — 当初計画は X と書いていたが
+  実際は Zone IX(原点 36°N / 139°50'E)。仙台は原点から ~266 km 離れてる。
+  Python script の sanity check 閾値 500km に緩和、ADR-0007 に明記。
+
+### Phase 3 残り候補(次回以降)
+
+1. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
+2. 灾害イベント(地震 + 洪水)— **Phase 4 対齐済みなので取り組める** 🎉
+3. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
+4. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
+5. 真の薄片写真(f.shera 研究室素材)
+6. per-building DEM re-projection(ADR-0007 Option B、Phase 5 候補)
 
 ## よく参照するパス
 

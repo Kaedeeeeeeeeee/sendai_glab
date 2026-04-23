@@ -20,6 +20,7 @@
 		3B662349F040996DEF82197F /* Footstep_Grass_02.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 0DDBDBD92ACC78B7C85A30FD /* Footstep_Grass_02.m4a */; };
 		3B7CFBC49966E0840945666B /* Environment_Sendai_57403618.usdz in Resources */ = {isa = PBXBuildFile; fileRef = F44D2E0DFA8A57D80924E844 /* Environment_Sendai_57403618.usdz */; };
 		3E5C782462B12E605935F4DB /* Feedback_Notify.m4a in Resources */ = {isa = PBXBuildFile; fileRef = C4E0D8CEF0F48C28090E9BC0 /* Feedback_Notify.m4a */; };
+		3F743426791D7006F12CD8A8 /* plateau_envelopes.json in Resources */ = {isa = PBXBuildFile; fileRef = EB4B69FF836D368FA2C1343B /* plateau_envelopes.json */; };
 		4741F33A9BC4D9CA2F1EB939 /* Footstep_Concrete_01.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 80AA544620317771F9A1EC52 /* Footstep_Concrete_01.m4a */; };
 		52DE50367B8F9BF1542CF39E /* SDGPlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 26DEE95F3289A53AC291AE69 /* SDGPlatform */; };
 		540DDB64E0056D9F522EDF0F /* Feedback_Chime.m4a in Resources */ = {isa = PBXBuildFile; fileRef = C4CF95C416CE0D4B7031CBC9 /* Feedback_Chime.m4a */; };
@@ -56,6 +57,7 @@
 		D43F7487D8832A74EDA27075 /* Footstep_Wood_02.m4a in Resources */ = {isa = PBXBuildFile; fileRef = B973E0356C5CA1D62A3CF3F2 /* Footstep_Wood_02.m4a */; };
 		D85EA31F113AE03AF0AA3AA6 /* Drill_Metal_Heavy.m4a in Resources */ = {isa = PBXBuildFile; fileRef = A2BF47CD2A4EA6E865E1D0FA /* Drill_Metal_Heavy.m4a */; };
 		D990E3838AF22D0D300F6EBE /* quest3.4.json in Resources */ = {isa = PBXBuildFile; fileRef = 7A5F28FEF326E542A6D1CA12 /* quest3.4.json */; };
+		DAB2FE8F777F9E3C4EC80CE6 /* Terrain_Sendai_574036_05.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 5563C4CE1C0F144D04AB518C /* Terrain_Sendai_574036_05.usdz */; };
 		E1A0ADE8EA224109B8FFE37A /* quest6.1.json in Resources */ = {isa = PBXBuildFile; fileRef = 5A8B15CCA68671602561A120 /* quest6.1.json */; };
 		EE238305E0BCD8BA351989DB /* Environment_Sendai_57403607.usdz in Resources */ = {isa = PBXBuildFile; fileRef = B69B33769D1B45FAA1FDE025 /* Environment_Sendai_57403607.usdz */; };
 		F0303CC21118AF3D96C58136 /* SDGGameplay in Frameworks */ = {isa = PBXBuildFile; productRef = C24A883783D9DFBE2B604573 /* SDGGameplay */; };
@@ -92,6 +94,7 @@
 		4C1352849943FF91A9EAC417 /* Environment_Sendai_57403608.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Environment_Sendai_57403608.usdz; sourceTree = "<group>"; };
 		52AAECA8BA8AB48ECD87F0ED /* Footstep_Grass_01.m4a */ = {isa = PBXFileReference; path = Footstep_Grass_01.m4a; sourceTree = "<group>"; };
 		5399CE9B1C20002EA549B2DC /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		5563C4CE1C0F144D04AB518C /* Terrain_Sendai_574036_05.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Terrain_Sendai_574036_05.usdz; sourceTree = "<group>"; };
 		5A8B15CCA68671602561A120 /* quest6.1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest6.1.json; sourceTree = "<group>"; };
 		6A711DA49E85E14532802171 /* quest4.1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest4.1.json; sourceTree = "<group>"; };
 		6FC93FAA121F5D7CB7AC4389 /* quest5.1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest5.1.json; sourceTree = "<group>"; };
@@ -122,10 +125,11 @@
 		D859A25E10C0ABACFD92FBA4 /* quest1.2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest1.2.json; sourceTree = "<group>"; };
 		DC78C97E4E02A9D3F86E38A1 /* Drill_Impact_04.m4a */ = {isa = PBXFileReference; path = Drill_Impact_04.m4a; sourceTree = "<group>"; };
 		E02A0D5CED6B12495C6BB963 /* quest5.2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest5.2.json; sourceTree = "<group>"; };
+		EB4B69FF836D368FA2C1343B /* plateau_envelopes.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = plateau_envelopes.json; sourceTree = "<group>"; };
 		EC91E144116FC0A33EB5D676 /* UI_Open.m4a */ = {isa = PBXFileReference; path = UI_Open.m4a; sourceTree = "<group>"; };
 		F44D2E0DFA8A57D80924E844 /* Environment_Sendai_57403618.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Environment_Sendai_57403618.usdz; sourceTree = "<group>"; };
 		FA0FDF6FAB87BB1B12B37139 /* Character_Teacher.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Character_Teacher.usdz; sourceTree = "<group>"; };
-		"TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
+		"TEMP_1ABE33EC-5775-4EBC-8FA7-CDB18BAFE145" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -299,6 +303,8 @@
 				2EDB22760868C5AFF2A9BAFA /* Environment_Sendai_57403617.usdz */,
 				F44D2E0DFA8A57D80924E844 /* Environment_Sendai_57403618.usdz */,
 				BC44983C01DA4BCC2F43AAA6 /* Environment_Sendai_57403619.usdz */,
+				EB4B69FF836D368FA2C1343B /* plateau_envelopes.json */,
+				5563C4CE1C0F144D04AB518C /* Terrain_Sendai_574036_05.usdz */,
 			);
 			path = Environment;
 			sourceTree = "<group>";
@@ -327,10 +333,10 @@
 			path = SFX;
 			sourceTree = "<group>";
 		};
-		"TEMP_77D5FF69-9182-4E86-A410-1BAF0BE69DFE" /* sendai_glab */ = {
+		"TEMP_E277A11A-19B7-4683-85BF-8128F135DC21" /* sendai_glab */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */,
+				"TEMP_1ABE33EC-5775-4EBC-8FA7-CDB18BAFE145" /* LocalSigning.xcconfig */,
 			);
 			path = sendai_glab;
 			sourceTree = "<group>";
@@ -436,6 +442,7 @@
 				D43F7487D8832A74EDA27075 /* Footstep_Wood_02.m4a in Resources */,
 				7F18ADF68A6296BE43C84D36 /* Localizable.xcstrings in Resources */,
 				712DEE5923CA0DAFBDED555B /* README.md in Resources */,
+				DAB2FE8F777F9E3C4EC80CE6 /* Terrain_Sendai_574036_05.usdz in Resources */,
 				9F2252C766F8558C6812B20E /* UI_Close.m4a in Resources */,
 				8543E3EE190203FF9A22A799 /* UI_Hover.m4a in Resources */,
 				B8355E90552EC3A03541E7F1 /* UI_Open.m4a in Resources */,
@@ -443,6 +450,7 @@
 				892F22E92E731A07067567FB /* UI_Tap.m4a in Resources */,
 				BB4C4CEE27C14BE55FBC893D /* UI_TapAlt.m4a in Resources */,
 				5E1FA91B743B4C35FA036697 /* UI_Toggle.m4a in Resources */,
+				3F743426791D7006F12CD8A8 /* plateau_envelopes.json in Resources */,
 				10FC540E82B51BE63A50131E /* quest1.1.json in Resources */,
 				B0091DB3525751D9587EC08C /* quest1.2.json in Resources */,
 				03B5A3133371A450049720F5 /* quest2.1.json in Resources */,
@@ -546,7 +554,7 @@
 		};
 		A18825CECF467420BB9E11DC /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */;
+			baseConfigurationReference = "TEMP_1ABE33EC-5775-4EBC-8FA7-CDB18BAFE145" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -634,7 +642,7 @@
 		};
 		FD7DEEC2B67B5D0A13C5A26E /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */;
+			baseConfigurationReference = "TEMP_1ABE33EC-5775-4EBC-8FA7-CDB18BAFE145" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

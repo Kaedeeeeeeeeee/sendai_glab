@@ -126,6 +126,20 @@ public struct RootView: View {
     /// Reused across view rebuilds; cheap to construct.
     @State private var environmentLoader = PlateauEnvironmentLoader()
 
+    /// Loads the decimated PLATEAU DEM terrain. Placed by the Phase 4
+    /// envelope manifest so it shares a real-world origin with the
+    /// building tiles. `nil` manifest → Phase 3 bottom-snap fallback.
+    @State private var terrainLoader = TerrainLoader()
+
+    /// CityGML `<gml:Envelope>`-derived real-world position table for
+    /// every PLATEAU tile shipped (5 bldg + 1 dem). Loaded once from
+    /// `Resources/Environment/plateau_envelopes.json` in `bootstrap()`
+    /// and passed to both loaders so buildings + terrain agree on
+    /// spatial anchoring. `nil` when the manifest file is missing
+    /// (e.g. a stripped test bundle); loaders fall back to the
+    /// Phase 2/3 bottom-snap layout in that case.
+    @State private var envelopeManifest: EnvelopeManifest?
+
     /// Loads `Character_*.usdz` from the app bundle and attaches Player
     /// components + camera.
     @State private var characterLoader = CharacterLoader()
@@ -292,24 +306,64 @@ public struct RootView: View {
             ground.position = SIMD3<Float>(1250, -0.02, 500)   // corridor mid-point
             content.add(ground)
 
-            // 2. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
-            //    materials are applied inside the loader. If any tile
-            //    is missing, the loader throws and we proceed without
-            //    cityscape so the app still launches.
-            //
-            //    DEM terrain integration is deferred to Phase 4 per
-            //    ADR-0006: nusamai strips each GLB's real-world Y
-            //    origin, so runtime tile-level alignment can't produce
-            //    a visually correct result without CityGML envelope
-            //    parsing. The offline conversion pipeline for DEM
-            //    lives in `Tools/plateau-pipeline/` for the Phase 4
-            //    follow-up.
+            // 2a. CityGML envelope manifest (Phase 4 / ADR-0007). Loaded
+            //     once and shared by terrain + building loaders so both
+            //     anchor against the same real-world origin (spawn tile
+            //     centre). Missing-manifest path is a soft fallback to
+            //     the Phase 3 bottom-snap layout — tests and stripped
+            //     bundles keep working.
+            var loadedManifest: EnvelopeManifest?
             do {
-                let corridor = try await environmentLoader.loadDefaultCorridor()
+                loadedManifest = try EnvelopeManifest(bundle: .main)
+                envelopeManifest = loadedManifest
+                print("[SDG-Lab][p4] envelope manifest loaded, \((loadedManifest?.envelopes.count ?? 0)) tiles")
+            } catch {
+                print("[SDG-Lab][p4] envelope manifest missing, falling back to Phase 3 layout: \(error)")
+            }
+
+            // 2b. PLATEAU DEM terrain. Positioned via the envelope
+            //     manifest (or bottom-snapped if manifest is nil).
+            //     Failure is soft: scene still renders without terrain.
+            var loadedTerrain: Entity?
+            do {
+                let terrainLoader = TerrainLoader(
+                    bundle: .main,
+                    manifest: loadedManifest
+                )
+                let terrain = try await terrainLoader.load()
+                content.add(terrain)
+                loadedTerrain = terrain
+            } catch {
+                print("[SDG-Lab][p4] TerrainLoader failed: \(error)")
+            }
+
+            // 2c. PLATEAU corridor (5 pre-converted USDZ tiles). When
+            //     the manifest is present, each tile sits at its real-
+            //     world envelope position; otherwise the Phase 3
+            //     bottom-snap layout is used. Either way a missing
+            //     tile aborts corridor load, which we log and proceed
+            //     from so the app still launches.
+            do {
+                let corridor = try await environmentLoader.loadDefaultCorridor(
+                    manifest: loadedManifest
+                )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
             } catch {
                 print("[SDG-Lab] PlateauEnvironmentLoader failed: \(error)")
+            }
+
+            // Sample terrain Y at (0, 0) once the terrain is in the
+            // scene. Used below for spawn Y. `nil` when terrain failed
+            // to load — spawnY stays 0 (flat-plane fallback).
+            var spawnY: Float = 0
+            if let terrain = loadedTerrain,
+               let surfaceY = TerrainLoader.sampleTerrainY(
+                 in: terrain,
+                 atWorldXZ: SIMD2<Float>(0, 0)
+               ) {
+                spawnY = surfaceY + 0.1
+                print("[SDG-Lab][p4] terrain Y at spawn = \(surfaceY); spawning player at Y=\(spawnY)")
             }
 
             // 3. Test geology outcrop. Offset 10 m east of spawn so it
@@ -364,10 +418,11 @@ public struct RootView: View {
                 capsule.addChild(camera)
                 body = capsule
             }
-            // Spawn at the world origin. Without DEM terrain (Phase 4
-            // work, ADR-0006), the scene floor is the flat 3500×2000 m
-            // green plane from step 1, which sits just below Y = 0.
-            body.position = SIMD3<Float>(0, 0, 0)
+            // Spawn XZ = (0, 0) (spawn tile's envelope centre, which
+            // is the RealityKit world origin by EnvelopeManifest's
+            // construction). Spawn Y = sampled terrain surface + 10 cm
+            // when terrain loaded, else 0 for the flat-plane fallback.
+            body.position = SIMD3<Float>(0, spawnY, 0)
             content.add(body)
             sceneRefs.playerEntity = body
             playerStore.attach(playerEntity: body)
