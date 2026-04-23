@@ -170,10 +170,81 @@ regression, merge small adjacent buildings or use
    float or bury relative to the sloped terrain. Per-vertex snap
    would be the full fix; out of scope.
 
+## Addendum — Phase 6.1: move the snap offline
+
+Shipping Phase 6 on device revealed a real perf hit: 4 443 per-
+building child entities across 5 tiles pushed the frame rate down
+because each building is a unique mesh (no RealityKit instancing
+possible), so every frame paid ~4 k draw calls plus scene-graph
+and culling overhead.
+
+Phase 6.1 keeps Phase 6's per-building precision but moves the
+snap to offline. The revised `split_bldg_by_connectivity.py`
+now also imports the DEM USDZ, samples it (via Blender's
+`Object.ray_cast`) at each split building's centroid, shifts
+every vertex of that building in-place so its centroid sits on
+the DEM surface, then **joins every building back into one
+mesh** and exports a single-object USDZ.
+
+Runtime effect: one merged mesh per tile (5 draw calls total for
+the corridor, roughly the Phase 2 budget), with every building
+already on its correct DEM elevation. `RootView` no longer passes
+a `terrainSampler` to `loadDefaultCorridor` — the mesh is pre-
+aligned, a runtime snap would just re-shift the whole tile as a
+rigid body and undo the per-building work.
+
+### Pipeline additions
+
+- `--dem-usdz`, `--envelope-json`, `--tile-id`, `--dem-tile-id`
+  CLI args on `split_bldg_by_connectivity.py`.
+- `Tools/plateau-pipeline/split_all_bldgs.sh` passes these in for
+  each of the 5 tiles; idempotency check now includes the DEM
+  USDZ + envelope JSON as inputs.
+
+### Shipped tile sizes (post Phase 6.1)
+
+| Tile | Buildings snapped | DEM misses | USDZ |
+|---|---:|---:|---:|
+| 57403607 |   275 | 0 | 315 KB |
+| 57403608 |   277 | 0 | 307 KB |
+| 57403617 | 1 302 | 0 | 1.37 MB |
+| 57403618 |   914 | 0 | 1.05 MB |
+| 57403619 | 1 672 | 3 | 2.75 MB |
+| **total** | **4 440** | **3** | **5.8 MB** |
+
+The three misses on 57403619 are far-east片平 edge buildings
+whose XY lies outside the shipped DEM quadrant (574036_05).
+Those buildings stay at nusamai's original Y — acceptable on
+the corridor edge.
+
+### Runtime simplification
+
+- `RootView` builds no `terrainSampler` closure for the corridor
+  loader.
+- `PlateauEnvironmentLoader.snapDescendantBuildings` still exists
+  for legacy / test code paths; mainline corridor loads bypass it.
+- `PlayerControlSystem` keeps its own ground-follow path through
+  `TerrainComponent` — that's decoupled from corridor snap.
+
+### Coordinate mapping (used by the offline script)
+
+EPSG:6677 is easting / northing / elevation. nusamai + glTF
+passes through into Blender as Z-up with X = east, Y = north,
+Z = elevation, so converting a bldg-Blender XY to the DEM's
+Blender frame is two scalar offsets:
+
+    dem_X = bldg_X + (bldg_env.east - dem_env.east)
+    dem_Y = bldg_Y + (bldg_env.north - dem_env.north)
+
+And the per-building target Z after sampling:
+
+    target_Z = dem_hit_Z + (dem_env.elev - bldg_env.elev)
+
 ## References
 
 - ADR-0006: DEM alignment deferred to Phase 4
 - ADR-0007: CityGML envelope alignment (Phase 4)
-- Blender Python API: `bpy.ops.mesh.remove_doubles`, `mesh.separate`
+- Blender Python API: `bpy.ops.mesh.remove_doubles`, `mesh.separate`,
+  `Object.ray_cast`, `bpy.ops.object.join`
 - PR stack: continues on `feat/phase-4-citygml-envelope-alignment`
   branch (PR #12)

@@ -1,59 +1,77 @@
 """Blender CLI: split a merged PLATEAU bldg GLB into per-building
-objects (one per connected mesh component) and export as a multi-
-prim USDZ that RealityKit can descend with `entity.children`.
+pieces, snap each independently to the DEM surface under it, then
+merge everything back into a single mesh and export as a single-
+object USDZ.
 
-Why this exists
----------------
-PLATEAU LOD2 tiles come out of nusamai as a single merged mesh per
-tile. That merged mesh stretches ~150 m vertically across the whole
-tile (hilltop buildings + valley buildings + basement geometry all
-in one AABB). Runtime per-tile alignment ("Phase 5") can only snap
-the whole mesh as a rigid body, so buildings at the tile's high end
-or low end inevitably float or bury relative to the DEM surface
-under them.
+This replaces the earlier "split-and-ship-per-building" output of
+Phase 6 (which produced 275-1675 child entities per tile and cost
+the device ~4 K draw calls per frame). Phase 6.1 keeps the per-
+building alignment precision but moves the snap to offline, so the
+runtime sees one merged mesh per tile (5 draw calls total, roughly
+the Phase 2-5 draw-call budget) with every building already on its
+correct DEM elevation.
 
-Phase 6 fixes this by turning each building into its own RealityKit
-child entity. The runtime then snaps each building independently
-(see `PlateauEnvironmentLoader.adaptiveGroundSnap`). The split here
-is a connected-component pass: PLATEAU LOD2 buildings are typically
-closed, non-touching meshes, so "loose parts" in Blender ≈ one per
-building.
+Pipeline
+--------
+1. Import the DEM USDZ — we'll sample it for per-building ground Y.
+2. Import the bldg GLB (one merged mesh, nusamai output).
+3. Strip materials (runtime reapplies Toon).
+4. Weld coincident verts at 1 mm so triangle soup becomes a real
+   manifold mesh (critical: without this step the next LOOSE split
+   produces one component per triangle, not per building).
+5. `mesh.separate(type='LOOSE')` → each connected component becomes
+   its own mesh object ≈ one building.
+6. For each per-building object:
+   - Compute centroid in Blender coords.
+   - Map centroid's Miyagi XY to DEM's Blender XY using the envelope
+     centres from `plateau_envelopes.json`.
+   - Raycast the DEM straight down, pick up the hit elevation.
+   - Translate every vertex of the building by the needed Z delta
+     so its centroid Z matches the DEM-derived target.
+7. Join all per-building meshes back into a single object.
+8. Delete the DEM object (we don't ship it from this tile).
+9. Export as USDZ — one top-level mesh, no multi-prim hierarchy.
+
+Coordinate mapping refresher
+----------------------------
+Each CityGML file declares an EPSG:6677 envelope; we have both
+bldg and DEM centres in `plateau_envelopes.json`. After nusamai +
+glTF import into Blender (Y-up → Z-up):
+
+- Blender X = Miyagi easting
+- Blender Y = Miyagi northing
+- Blender Z = Miyagi elevation (orthometric)
+
+So converting a bldg-Blender XY to a DEM-Blender XY is just two
+scalar offsets:
+    dem_X = bldg_X + (bldg_env.east - dem_env.east)
+    dem_Y = bldg_Y + (bldg_env.north - dem_env.north)
+
+And the target Blender Z for a building centroid, after sampling
+DEM:
+    target_Z = dem_hit_Z + (dem_env.elev - bldg_env.elev)
 
 Usage
 -----
     blender --background --factory-startup \
-        --python Tools/plateau-pipeline/split_bldg_by_connectivity.py \
-        -- \
-        --input  Resources/Environment/Environment_Sendai_57403617.glb \
-        --output Resources/Environment/Environment_Sendai_57403617.usdz
-
-Pipeline
---------
-1. Import the GLB (one merged mesh object expected).
-2. Strip materials — the runtime's `ToonMaterialFactory` recolours
-   each tile, so per-building material bakes would be wasted bytes.
-3. Enter edit mode, select-all, `mesh.separate(type='LOOSE')`, exit.
-4. Each resulting object is one building (approximately).
-5. Export USDZ with `selected_objects_only: False` and
-   `root_prim_path: "/root"` so every object becomes a child prim
-   under `/root`.
-
-Safety
-------
-- If the split produces zero objects (imported mesh had zero loose
-  parts, i.e. one fully-welded mesh) the script exits non-zero with
-  a diagnostic — the downstream runtime relies on the split working.
-- Extreme over-split (> 5000 objects per tile) is logged but still
-  exported; the runtime snap loop is O(N) so even 5 K per-tile is
-  fine on M-series devices.
+      --python Tools/plateau-pipeline/split_bldg_by_connectivity.py \
+      -- \
+      --input  Resources/Environment/Environment_Sendai_57403617.glb \
+      --output Resources/Environment/Environment_Sendai_57403617.usdz \
+      --dem-usdz Resources/Environment/Terrain_Sendai_574036_05.usdz \
+      --envelope-json Resources/Environment/plateau_envelopes.json \
+      --tile-id 57403617 \
+      --dem-tile-id 574036_05_dem
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 import bpy
+from mathutils import Vector  # type: ignore
 
 
 def parse_post_dashdash_args() -> argparse.Namespace:
@@ -70,15 +88,83 @@ def parse_post_dashdash_args() -> argparse.Namespace:
     )
     parser.add_argument("--input",  required=True, help="Input .glb path")
     parser.add_argument("--output", required=True, help="Output .usdz path")
+    parser.add_argument(
+        "--dem-usdz",
+        required=True,
+        help="DEM terrain USDZ to sample for per-building ground Y.",
+    )
+    parser.add_argument(
+        "--envelope-json",
+        required=True,
+        help="plateau_envelopes.json with bldg + DEM tile envelope centres.",
+    )
+    parser.add_argument(
+        "--tile-id",
+        required=True,
+        help="Building tile id (e.g. '57403617') — key into envelope JSON.",
+    )
+    parser.add_argument(
+        "--dem-tile-id",
+        required=True,
+        help="DEM tile id (e.g. '574036_05_dem') — key into envelope JSON.",
+    )
     return parser.parse_args(script_args)
 
 
-def import_glb(input_glb: Path) -> None:
-    """Import into an empty scene. Leaves the imported mesh object(s)
-    selected and the most-recently-added one active.
+# ---------------------------------------------------------------------------
+# Envelope loading
+# ---------------------------------------------------------------------------
+
+def envelope_center(json_path: Path, tile_id: str) -> tuple[float, float, float]:
+    """Return the envelope centre (easting, northing, elevation) in m
+    for `tile_id` from the manifest JSON produced by
+    `Tools/plateau-pipeline/extract_envelopes.py`.
+    """
+    with json_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    env = data.get("envelopes", {}).get(tile_id)
+    if env is None:
+        raise ValueError(f"tile '{tile_id}' not found in {json_path.name}")
+    lo = env["lower_corner_m"]
+    up = env["upper_corner_m"]
+    cx = (lo[0] + up[0]) / 2
+    cy = (lo[1] + up[1]) / 2
+    cz = (lo[2] + up[2]) / 2
+    return (cx, cy, cz)
+
+
+def reset_scene() -> None:
+    """Wipe the default scene so neither cubes nor the previous run
+    leak into this conversion.
     """
     bpy.ops.wm.read_factory_settings(use_empty=True)
+
+
+def import_glb(input_glb: Path) -> None:
+    """Import the bldg GLB into the current scene (not resetting).
+    Leaves the imported mesh objects selected and the active object
+    is one of them.
+    """
     bpy.ops.import_scene.gltf(filepath=str(input_glb))
+
+
+def import_dem_usdz(input_usdz: Path, tag_name: str) -> bpy.types.Object:
+    """Import the DEM USDZ and return the resulting mesh object,
+    renamed to `tag_name` so later code can tell it apart from
+    the building meshes.
+    """
+    existing = {o.name for o in bpy.data.objects}
+    bpy.ops.wm.usd_import(filepath=str(input_usdz))
+    new_meshes = [
+        o for o in bpy.data.objects
+        if o.type == "MESH" and o.name not in existing
+    ]
+    if not new_meshes:
+        raise RuntimeError(f"DEM USDZ {input_usdz} produced no meshes")
+    # Expect exactly one mesh from the Phase 4 DEM pipeline.
+    dem_obj = new_meshes[0]
+    dem_obj.name = tag_name
+    return dem_obj
 
 
 def strip_all_materials() -> None:
@@ -152,6 +238,121 @@ def weld_and_split_loose(
     return [o for o in bpy.data.objects if o.type == "MESH"]
 
 
+def _centroid_local(obj: bpy.types.Object) -> Vector:
+    """Average of the mesh's vertex positions in the object's local
+    frame. We operate in local because after LOOSE split each object
+    inherits an identity transform (Blender re-origins the split
+    pieces), so local == world.
+    """
+    verts = obj.data.vertices
+    if not verts:
+        return Vector((0.0, 0.0, 0.0))
+    acc = Vector((0.0, 0.0, 0.0))
+    for v in verts:
+        acc += v.co
+    return acc / len(verts)
+
+
+def snap_building_to_dem(
+    building: bpy.types.Object,
+    dem_obj: bpy.types.Object,
+    bldg_env: tuple[float, float, float],
+    dem_env:  tuple[float, float, float],
+) -> bool:
+    """Shift every vertex of `building` vertically so its centroid
+    lands on the DEM surface at the matching Miyagi XY.
+
+    Coordinate chain (see module docstring):
+      - Blender X = Miyagi easting
+      - Blender Y = Miyagi northing
+      - Blender Z = Miyagi elevation
+      - Bldg local origin  = bldg envelope centre
+      - DEM local origin   = dem  envelope centre
+
+    Mapping: `dem_X = bldg_X + (bldg_env.east - dem_env.east)`, etc.
+
+    Returns True on success, False if the DEM doesn't cover the XY
+    (raycast misses). A miss means the building's footprint is
+    outside the shipped DEM quadrant; we leave it unshifted so the
+    runtime can still render it, just with its original nusamai Y.
+    """
+    centroid = _centroid_local(building)
+    # bldg_blender → dem_blender (2 scalar offsets on X and Y)
+    dx_to_dem = bldg_env[0] - dem_env[0]
+    dy_to_dem = bldg_env[1] - dem_env[1]
+    dem_x = centroid.x + dx_to_dem
+    dem_y = centroid.y + dy_to_dem
+
+    # Ray down through the DEM in its local frame. DEM object has
+    # identity transform after import, so local == world here.
+    origin = Vector((dem_x, dem_y, 1000.0))
+    direction = Vector((0.0, 0.0, -1.0))
+    result, hit_pos, _hit_norm, _hit_idx = dem_obj.ray_cast(
+        origin=origin,
+        direction=direction,
+        distance=2000.0,
+    )
+    if not result:
+        return False
+
+    dem_hit_z = hit_pos.z
+    # Back to bldg frame: `target_Z_bldg = dem_hit_z + (dem_env.elev - bldg_env.elev)`
+    target_z = dem_hit_z + (dem_env[2] - bldg_env[2])
+    delta_z = target_z - centroid.z
+
+    # Bake the shift into vertex positions (not object.location) so
+    # the next `object.join` doesn't need to reconcile per-object
+    # transforms. Small loop — LOD2 buildings are tiny.
+    for v in building.data.vertices:
+        v.co.z += delta_z
+    return True
+
+
+def snap_all_buildings(
+    buildings: list[bpy.types.Object],
+    dem_obj: bpy.types.Object,
+    bldg_env: tuple[float, float, float],
+    dem_env:  tuple[float, float, float],
+) -> tuple[int, int]:
+    """Loop `snap_building_to_dem` over every building. Returns
+    `(snapped, missed)` counts for the summary line.
+    """
+    snapped = 0
+    missed = 0
+    for b in buildings:
+        if snap_building_to_dem(b, dem_obj, bldg_env, dem_env):
+            snapped += 1
+        else:
+            missed += 1
+    return snapped, missed
+
+
+def join_buildings(buildings: list[bpy.types.Object]) -> bpy.types.Object:
+    """Join every building mesh into a single object. Returns the
+    join target. We pick the first building as the target and make
+    sure it's the active object before calling `object.join`.
+    """
+    if not buildings:
+        raise RuntimeError("join_buildings called with an empty list")
+    bpy.ops.object.select_all(action="DESELECT")
+    for b in buildings:
+        b.select_set(True)
+    bpy.context.view_layer.objects.active = buildings[0]
+    if len(buildings) > 1:
+        bpy.ops.object.join()
+    merged = bpy.context.view_layer.objects.active
+    merged.name = "bldg_merged"
+    return merged
+
+
+def delete_object(obj: bpy.types.Object) -> None:
+    """Remove the DEM object so it isn't exported with the tile."""
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.delete()
+
+
 def rename_for_readability(objects: list[bpy.types.Object]) -> None:
     """Sort by X then Z and rename `bldg_000`, `bldg_001`, … so the
     USDZ prim names are stable and self-describing. Determinism matters
@@ -202,27 +403,74 @@ def main() -> int:
     args = parse_post_dashdash_args()
     input_glb = Path(args.input)
     output_usdz = Path(args.output)
+    dem_usdz = Path(args.dem_usdz)
+    envelope_json = Path(args.envelope_json)
 
-    if not input_glb.is_file():
-        print(f"[FAIL] input GLB not found: {input_glb}", file=sys.stderr)
+    for required in (input_glb, dem_usdz, envelope_json):
+        if not required.is_file():
+            print(f"[FAIL] missing input: {required}", file=sys.stderr)
+            return 1
+
+    try:
+        bldg_env = envelope_center(envelope_json, args.tile_id)
+        dem_env = envelope_center(envelope_json, args.dem_tile_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[FAIL] envelope lookup: {exc}", file=sys.stderr)
         return 1
 
     try:
+        reset_scene()
+        # DEM first so it's in the scene when we iterate / raycast.
+        dem_obj = import_dem_usdz(dem_usdz, tag_name="DEM_SAMPLE")
+        # bldg second — weld + split produces one obj per building.
+        existing = {o.name for o in bpy.data.objects}
         import_glb(input_glb)
-        before_count = sum(1 for o in bpy.data.objects if o.type == "MESH")
+        bldg_meshes_initial = [
+            o for o in bpy.data.objects
+            if o.type == "MESH" and o.name not in existing
+        ]
+        before_count = len(bldg_meshes_initial)
         strip_all_materials()
-        split_objects = weld_and_split_loose()
-        after_count = len(split_objects)
-        rename_for_readability(split_objects)
+
+        # `weld_and_split_loose` operates on every mesh in the scene;
+        # temporarily hide the DEM so it stays untouched.
+        for o in [dem_obj]:
+            o.hide_set(True)
+            o.hide_select = True
+        all_split = weld_and_split_loose()
+        for o in [dem_obj]:
+            o.hide_set(False)
+            o.hide_select = False
+        # Keep only the bldg split products (exclude DEM).
+        buildings = [o for o in all_split if o.name != dem_obj.name]
+        split_count = len(buildings)
+
+        # Phase 6.1: per-building DEM snap. Shifts vertex Z so each
+        # building sits on the DEM surface under it.
+        snapped, missed = snap_all_buildings(
+            buildings, dem_obj, bldg_env, dem_env
+        )
+
+        # Merge everything back into one mesh — this is the perf win
+        # over Phase 6: RealityKit sees one ModelComponent per tile
+        # instead of thousands.
+        merged = join_buildings(buildings)
+        # After join, `buildings` names are now invalid; rename the
+        # single result for readable USDZ prims.
+        merged.name = "bldg"
+        rename_for_readability([merged])
+
+        # Ship only the merged bldg mesh, not the DEM.
+        delete_object(dem_obj)
         export_usdz(output_usdz)
     except Exception as exc:  # noqa: BLE001
-        print(f"[FAIL] split + export: {exc}", file=sys.stderr)
+        print(f"[FAIL] split+snap+merge: {exc}", file=sys.stderr)
         return 1
 
-    if after_count == 0:
+    if split_count == 0:
         print(
-            f"[FAIL] split produced zero objects from {input_glb.name} — "
-            "runtime needs ≥ 1 child prim.",
+            f"[FAIL] split produced zero building objects from "
+            f"{input_glb.name}",
             file=sys.stderr,
         )
         return 1
@@ -230,13 +478,14 @@ def main() -> int:
     size_kb = output_usdz.stat().st_size / 1024
     print(
         f"[OK] {input_glb.name} -> {output_usdz.name}  "
-        f"meshes {before_count} -> {after_count} objects  "
+        f"initial_meshes {before_count} split {split_count} "
+        f"snapped {snapped} missed {missed} merged → 1 mesh  "
         f"{size_kb:,.0f} KB"
     )
-    if after_count > 5000:
+    if missed > 0:
         print(
-            f"[WARN] unusually high object count ({after_count}) — "
-            "verify hierarchy on device; consider merge policy.",
+            f"[WARN] {missed} building(s) had no DEM coverage — "
+            "they were left at nusamai's original Y.",
             file=sys.stderr,
         )
     return 0

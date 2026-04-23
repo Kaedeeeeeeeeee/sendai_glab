@@ -344,31 +344,23 @@ public struct RootView: View {
             }
 
             // 2c. PLATEAU corridor (5 pre-converted USDZ tiles).
-            //     Placement rules (Phase 5):
-            //     - manifest + terrain  →  each tile's mesh bottom is
-            //       snapped to the DEM sampled at the tile's own XZ
-            //       (per-tile adaptive; no global constant)
-            //     - manifest only        →  envelope position +
-            //       `envelopeTileGroundLift` constant fallback
-            //     - no manifest          →  legacy `tile.localCenter`
-            //       + bottom-snap
-            //     A missing tile aborts corridor load, which we log and
-            //     proceed from so the app still launches.
-            let terrainSampler: PlateauEnvironmentLoader.TerrainHeightSampler?
-            if let terrain = loadedTerrain {
-                terrainSampler = { xz in
-                    TerrainLoader.sampleTerrainY(
-                        in: terrain,
-                        atWorldXZ: xz
-                    )
-                }
-            } else {
-                terrainSampler = nil
-            }
+            //     Phase 6.1 shipped tiles are already per-building DEM-
+            //     snapped offline by `split_bldg_by_connectivity.py`,
+            //     so the runtime's job is purely envelope-based tile
+            //     placement — no sampler needed. Passing nil keeps the
+            //     corridor loader on the "place by manifest, trust the
+            //     mesh" path; the pre-snap work baked into the mesh
+            //     means each building sits on its DEM without extra
+            //     runtime cost (and without the 4 k-draw-call tax of
+            //     the Phase 6 per-building split).
+            //
+            //     Player ground-follow still works: `PlayerControlSystem`
+            //     locates the DEM via its own `TerrainComponent` query
+            //     and calls `TerrainLoader.sampleTerrainY` directly,
+            //     so it doesn't depend on a sampler closure here.
             do {
                 let corridor = try await environmentLoader.loadDefaultCorridor(
-                    manifest: loadedManifest,
-                    terrainSampler: terrainSampler
+                    manifest: loadedManifest
                 )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
