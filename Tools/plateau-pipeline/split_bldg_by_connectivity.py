@@ -288,6 +288,26 @@ def _foundation_z(obj: bpy.types.Object) -> float:
     return zs[idx]
 
 
+# How far below the sampled DEM surface we anchor each building's
+# foundation. Rationale: buildings are rigid bodies; on sloped terrain
+# (common around Aobayama / Kawauchi), the downslope edge of the
+# footprint ends up visibly flying above ground while the upslope edge
+# hides behind the terrain mesh. Sinking the whole foundation by a
+# small constant trades a barely-perceptible "buried" look on the
+# upslope side (occluded by terrain anyway) for a much less noticeable
+# gap on the downslope side — net visual improvement.
+#
+# 0.75 m is the Phase 6.1 iter 4 tuning point: the upslope burial
+# stays hidden by DEM occlusion even at the shallowest LOD2 foundation,
+# and the downslope float shrinks to a sub-metre gap that reads as
+# "foundation slightly planted" rather than "building hovering".
+#
+# Tuning knob: raise if downslope float is still visible in playtest,
+# lower if upslope burial becomes obvious where DEM occlusion is weak
+# (e.g. very shallow slopes).
+SLOPE_SINK_M: float = 0.75
+
+
 def snap_building_to_dem(
     building: bpy.types.Object,
     dem_obj: bpy.types.Object,
@@ -295,11 +315,13 @@ def snap_building_to_dem(
     dem_env:  tuple[float, float, float],
 ) -> bool:
     """Shift every vertex of `building` vertically so its **foundation**
-    (25th-percentile Z) lands on the DEM surface at the matching Miyagi
-    XY. Foundation-snap beats centroid-snap on device because PLATEAU
-    tiles span ~150 m vertically; centre-anchoring puts half the
-    building below the DEM (invisibly clipped by terrain) and the
-    upper half visibly "flying" above ground.
+    (25th-percentile Z) lands `SLOPE_SINK_M` below the DEM surface at
+    the matching Miyagi XY. Foundation-snap beats centroid-snap on
+    device because PLATEAU tiles span ~150 m vertically; centre-
+    anchoring puts half the building below the DEM (invisibly clipped
+    by terrain) and the upper half visibly "flying" above ground. The
+    extra sub-metre sink compensates for rigid-body buildings on
+    sloped terrain (see `SLOPE_SINK_M` rationale).
 
     Coordinate chain (see module docstring):
       - Blender X = Miyagi easting
@@ -336,9 +358,11 @@ def snap_building_to_dem(
 
     dem_hit_z = hit_pos.z
     # Target Z in bldg frame for the FOUNDATION vertex:
-    #   real_elev = dem_hit_Z + dem_env.Z
+    #   real_elev = dem_hit_Z + dem_env.Z - SLOPE_SINK_M
     #   bldg_local_Y for that real_elev = real_elev - bldg_env.Z
-    target_foundation_z = dem_hit_z + (dem_env[2] - bldg_env[2])
+    target_foundation_z = (
+        dem_hit_z + (dem_env[2] - bldg_env[2]) - SLOPE_SINK_M
+    )
     delta_z = target_foundation_z - foundation_z
 
     # Bake the shift into vertex positions so `object.join` doesn't
