@@ -177,7 +177,97 @@ final class GeologyRegionRegistryTests: XCTestCase {
         XCTAssertEqual(eastPos!.z, 0, accuracy: 1e-3)
     }
 
+    // MARK: - Bundle-backed load (integration)
+
+    /// End-to-end load through the bundle: decodes every shipped
+    /// region JSON and pairs each with a synthetic envelope manifest.
+    /// Protects against JSON typos / schema drift in the 5 region
+    /// files before they surface as runtime drill failures.
+    func testLoadFromTestBundleWithSyntheticManifest() throws {
+        // Minimal manifest covering every tile id so the registry's
+        // envelope lookup has something to resolve.
+        let manifestJSON = """
+        {
+          "meta": { "spawn_tile_id": "57403617" },
+          "envelopes": {
+            "57403607": { "lower_corner_m": [0.0, 1000.0, 0.0], "upper_corner_m": [1000.0, 2000.0, 0.0] },
+            "57403608": { "lower_corner_m": [1000.0, 1000.0, 0.0], "upper_corner_m": [2000.0, 2000.0, 0.0] },
+            "57403617": { "lower_corner_m": [0.0, 0.0, 0.0], "upper_corner_m": [1000.0, 1000.0, 0.0] },
+            "57403618": { "lower_corner_m": [1000.0, 0.0, 0.0], "upper_corner_m": [2000.0, 1000.0, 0.0] },
+            "57403619": { "lower_corner_m": [2000.0, 0.0, 0.0], "upper_corner_m": [3000.0, 1000.0, 0.0] }
+          }
+        }
+        """
+        let manifest = try EnvelopeManifest(jsonData: Data(manifestJSON.utf8))
+        let registry = try GeologyRegionRegistry(
+            bundle: .module,
+            manifest: manifest
+        )
+        // All 5 regions must be present.
+        for regionId in GeologyRegionRegistry.orderedRegionIds {
+            XCTAssertNotNil(
+                registry.footprint(forRegion: regionId),
+                "missing footprint for '\(regionId)'"
+            )
+        }
+        // Spawn tile (aobayama-campus) should span ~1 km each way
+        // around the RealityKit origin given the spawn-at-origin
+        // envelope layout.
+        if let fp = registry.footprint(forRegion: "aobayama-campus") {
+            XCTAssertEqual(fp.min.x, -500, accuracy: 1)
+            XCTAssertEqual(fp.max.x,  500, accuracy: 1)
+        } else {
+            XCTFail("aobayama-campus footprint missing")
+        }
+    }
+
+    /// Each shipped region JSON must decode into a column with
+    /// `confidence == "needs_geologist_review"` — catches a
+    /// well-intentioned "reviewed"-flip commit that lands before
+    /// f.shera's geologist review actually happens.
+    func testShippedRegionsFlaggedNeedsReview() throws {
+        let manifest = try makeSyntheticManifest()
+        let registry = try GeologyRegionRegistry(
+            bundle: .module,
+            manifest: manifest
+        )
+        for regionId in GeologyRegionRegistry.orderedRegionIds {
+            // The internal `regions` array owns the loaded column.
+            // Reach into it via `column(forWorldXZ:)` using a point
+            // known to be inside the tile's synthetic footprint.
+            guard let fp = registry.footprint(forRegion: regionId) else {
+                XCTFail("footprint missing for \(regionId)")
+                continue
+            }
+            let midXZ = (fp.min + fp.max) * 0.5
+            let column = registry.column(forWorldXZ: midXZ)
+            XCTAssertEqual(
+                column?.confidence,
+                "needs_geologist_review",
+                "region '\(regionId)' confidence flag flipped — review the data first"
+            )
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Synthetic manifest covering every shipped tile id. Extracted
+    /// so multiple tests can reuse it.
+    private func makeSyntheticManifest() throws -> EnvelopeManifest {
+        let manifestJSON = """
+        {
+          "meta": { "spawn_tile_id": "57403617" },
+          "envelopes": {
+            "57403607": { "lower_corner_m": [0.0, 1000.0, 0.0], "upper_corner_m": [1000.0, 2000.0, 0.0] },
+            "57403608": { "lower_corner_m": [1000.0, 1000.0, 0.0], "upper_corner_m": [2000.0, 2000.0, 0.0] },
+            "57403617": { "lower_corner_m": [0.0, 0.0, 0.0], "upper_corner_m": [1000.0, 1000.0, 0.0] },
+            "57403618": { "lower_corner_m": [1000.0, 0.0, 0.0], "upper_corner_m": [2000.0, 1000.0, 0.0] },
+            "57403619": { "lower_corner_m": [2000.0, 0.0, 0.0], "upper_corner_m": [3000.0, 1000.0, 0.0] }
+          }
+        }
+        """
+        return try EnvelopeManifest(jsonData: Data(manifestJSON.utf8))
+    }
 
     /// Minimal column payload used by multiple tests. Keeps fixture
     /// construction at the call-site short and the field values
