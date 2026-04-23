@@ -177,6 +177,26 @@ public struct RootView: View {
     @State private var vehicleSummonedToken: SubscriptionToken?
     @State private var dialogueFinishedToken: SubscriptionToken?
 
+    /// Phase 7: Vehicle enter/exit tokens. Retained so `teardown()`
+    /// can cancel them; the bridge from events → scene graph mutation
+    /// (camera re-parent) lives in `bootstrap()`.
+    @State private var vehicleEnteredToken: SubscriptionToken?
+    @State private var vehicleExitedToken: SubscriptionToken?
+
+    /// Phase 7: player world position polled at 10 Hz (see
+    /// `playerPositionPoll`). Feeds the HUD's Board button proximity
+    /// check. Updating at every RealityKit frame would churn SwiftUI
+    /// more than needed; 100 ms is plenty for a "walk up to the
+    /// drone and tap Board" affordance.
+    @State private var polledPlayerPosition: SIMD3<Float> = .zero
+
+    /// Publisher that fires every 100 ms while the view is on-screen.
+    /// Used to refresh `polledPlayerPosition`. A Combine `.autoconnect`
+    /// keeps the timer running without manual start/stop bookkeeping.
+    private let playerPositionPoll = Timer.publish(
+        every: 0.1, on: .main, in: .common
+    ).autoconnect()
+
     /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
     /// device width on iPad landscape; a 1000-pt drag rotating by one
     /// radian (≈57°) feels right on first play.
@@ -204,9 +224,13 @@ public struct RootView: View {
                 playerStore: playerStore,
                 drillingStore: drillingStore,
                 inventoryStore: inventoryStore,
+                vehicleStore: vehicleStore,
                 joystickAxis: $joystickAxis,
+                playerWorldPosition: polledPlayerPosition,
                 onDrillTapped: handleDrillTap,
-                onInventoryTapped: { showInventory = true }
+                onInventoryTapped: { showInventory = true },
+                onBoardTapped: handleBoardTap,
+                onExitVehicleTapped: handleExitVehicleTap
             )
 
             // Phase 2 Beta debug actions: opens workbench, summons a
@@ -269,10 +293,36 @@ public struct RootView: View {
         #endif
         .task { await bootstrap() }
         .onDisappear { teardown() }
+        .onReceive(playerPositionPoll) { _ in
+            // Pull the current player body position into SwiftUI land
+            // so the HUD's Board-button proximity check can redraw.
+            // Reads ignore the character Y (we only care about XZ for
+            // "did the player walk up to the vehicle") but snapshotting
+            // all 3 is cheap. Writes only fire the HUD redraw when the
+            // @State value actually changes (SIMD3 is Equatable).
+            if let body = sceneRefs.playerEntity {
+                polledPlayerPosition = body.position(relativeTo: nil)
+            }
+        }
         .onChange(of: joystickAxis) { _, new in
-            let store = playerStore
+            // Phase 7 joystick routing: the same on-screen stick drives
+            // either the player or the occupied vehicle depending on
+            // `vehicleStore.occupiedVehicleId`. The HUD joystick View stays
+            // ignorant of which Store consumes its output — the swap lives
+            // here in RootView so the AGENTS.md §1 View→Store→ECS boundary
+            // holds (the View knows nothing about Stores; RootView picks
+            // the recipient).
+            //
+            // Vertical axis is wired to 0 for MVP; a dedicated vertical
+            // stick (drone up/down) lands in Phase 7.1.
+            let playerStore = self.playerStore
+            let vehicleStore = self.vehicleStore
             Task { @MainActor in
-                await store.intent(.move(new))
+                if vehicleStore.occupiedVehicleId != nil {
+                    await vehicleStore.intent(.pilot(axis: new, vertical: 0))
+                } else {
+                    await playerStore.intent(.move(new))
+                }
             }
         }
     }
@@ -507,6 +557,28 @@ public struct RootView: View {
         }
     }
 
+    /// ⬆️ Board button tapped. The HUD has already resolved which
+    /// vehicle is nearest; we just forward the id to the Store. The
+    /// actual camera re-parent + player hide runs out of the
+    /// `VehicleEntered` subscriber in `bootstrap()` so the same
+    /// behaviour fires whether boarding comes from the HUD button,
+    /// a future scripted event, or a network multiplayer peer.
+    private func handleBoardTap(_ vehicleId: UUID) {
+        let store = vehicleStore
+        Task { @MainActor in
+            await store.intent(.enter(vehicleId: vehicleId))
+        }
+    }
+
+    /// ⬇️ Exit button tapped. Symmetric with `handleBoardTap`; the
+    /// `VehicleExited` subscriber does the scene graph work.
+    private func handleExitVehicleTap() {
+        let store = vehicleStore
+        Task { @MainActor in
+            await store.intent(.exit)
+        }
+    }
+
     /// 📖 button → load the chapter-1 intro and have the dialogue
     /// store play it. Phase 3 will trigger this automatically from
     /// quest state instead of a manual button.
@@ -542,6 +614,81 @@ public struct RootView: View {
             container.addChild(entity)
         }
         vehicleStore.register(entity: entity, for: event.vehicleId)
+    }
+
+    /// Subscriber for `VehicleEntered` — re-parent the camera onto
+    /// the vehicle so the player sees from the pilot seat. Hides
+    /// the character body so the mesh doesn't clip through the
+    /// cockpit / get carried awkwardly.
+    ///
+    /// MVP camera rig: 1 m above vehicle origin, 2 m behind (local
+    /// +Z is the drone's "forward"; -Z puts the camera behind).
+    /// Doesn't try to be clever — just a static offset. Phase 7.1
+    /// will add a proper follow cam if playtest demands.
+    @MainActor
+    private func handleVehicleEntered(_ event: VehicleEntered) {
+        guard
+            let playerBody = sceneRefs.playerEntity,
+            let camera = findPerspectiveCamera(under: playerBody),
+            let vehicleEntity = vehicleStore.entity(for: event.vehicleId)
+        else {
+            print("[SDG-Lab][p7] VehicleEntered: camera or vehicle missing; " +
+                  "skipping re-parent")
+            return
+        }
+        camera.removeFromParent()
+        vehicleEntity.addChild(camera)
+        camera.transform.translation = SIMD3<Float>(0, 1.0, -2.0)
+        // Disable AFTER camera detach; `isEnabled = false` propagates
+        // to descendants, so a still-parented camera would go dark.
+        playerBody.isEnabled = false
+    }
+
+    /// Symmetric counterpart to `handleVehicleEntered`: camera
+    /// returns to the player, character re-enables, and the body
+    /// is teleported under the vehicle so the player doesn't pop
+    /// back to where they boarded (common annoyance on first
+    /// prototypes of board/exit UX).
+    @MainActor
+    private func handleVehicleExited(_ event: VehicleExited) {
+        guard let playerBody = sceneRefs.playerEntity else { return }
+        // Camera may be under the vehicle or back on the player
+        // depending on timing / duplicate events; search globally.
+        let camera =
+            findPerspectiveCamera(under: playerBody)
+            ?? (vehicleStore.entity(for: event.vehicleId).flatMap { veh in
+                findPerspectiveCamera(under: veh)
+            })
+        if let camera {
+            camera.removeFromParent()
+            playerBody.addChild(camera)
+            // Back to head height — matches CharacterLoader default.
+            camera.transform.translation = SIMD3<Float>(0, 1.5, 0)
+        }
+        playerBody.isEnabled = true
+        if let vehicleEntity = vehicleStore.entity(for: event.vehicleId) {
+            let vehiclePos = vehicleEntity.position(relativeTo: nil)
+            // Place the player 0.5 m below vehicle origin so the feet
+            // are on the ground when the vehicle was hovering. Phase
+            // 7.1 can raycast the DEM for a real landing Y; MVP trusts
+            // the vehicle's hover height.
+            playerBody.position = SIMD3<Float>(
+                vehiclePos.x, vehiclePos.y - 0.5, vehiclePos.z
+            )
+        }
+    }
+
+    /// Iterative DFS that returns the first `PerspectiveCamera`
+    /// descendant of `root`. Camera is unnamed in both the Meshy
+    /// character and the capsule fallback, so we match by type.
+    @MainActor
+    private func findPerspectiveCamera(under root: Entity) -> Entity? {
+        var stack: [Entity] = [root]
+        while let current = stack.popLast() {
+            if current is PerspectiveCamera { return current }
+            stack.append(contentsOf: current.children)
+        }
+        return nil
     }
 
     // MARK: - Bootstrap
@@ -603,6 +750,19 @@ public struct RootView: View {
         // entity. The Store only knows snapshots; we own the meshes.
         vehicleSummonedToken = await bus.subscribe(VehicleSummoned.self) { event in
             await handleVehicleSummoned(event)
+        }
+
+        // Phase 7: camera re-parent on board / disembark. Kept in
+        // the RootView because it's scene-graph mutation (which the
+        // Store must not touch); the Store has already flipped
+        // `occupiedVehicleId` by the time we run, so the joystick
+        // routing in `.onChange(of: joystickAxis)` is already aimed
+        // at the right Store.
+        vehicleEnteredToken = await bus.subscribe(VehicleEntered.self) { event in
+            await handleVehicleEntered(event)
+        }
+        vehicleExitedToken = await bus.subscribe(VehicleExited.self) { event in
+            await handleVehicleExited(event)
         }
 
         // When the chapter intro dialogue finishes, kick off the
@@ -697,6 +857,14 @@ public struct RootView: View {
         if let token = vehicleSummonedToken {
             Task { await bus.cancel(token) }
             vehicleSummonedToken = nil
+        }
+        if let token = vehicleEnteredToken {
+            Task { await bus.cancel(token) }
+            vehicleEnteredToken = nil
+        }
+        if let token = vehicleExitedToken {
+            Task { await bus.cancel(token) }
+            vehicleExitedToken = nil
         }
         if let token = dialogueFinishedToken {
             Task { await bus.cancel(token) }

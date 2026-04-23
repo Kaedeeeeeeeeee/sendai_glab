@@ -180,6 +180,19 @@ public final class VehicleStore: Store {
         entityRegistry.removeValue(forKey: vehicleId)
     }
 
+    /// Look up the scene-side entity for a previously-registered
+    /// vehicle id. Returns `nil` if the id is unknown or the entity
+    /// has been deallocated (weak reference).
+    ///
+    /// Used by the Phase 7 UX layer (RootView) to:
+    /// * re-parent the camera onto the vehicle on `VehicleEntered`,
+    /// * read the vehicle's live world position for the Board / Exit
+    ///   HUD button's proximity check (snapshot positions go stale
+    ///   the moment the vehicle starts moving).
+    public func entity(for vehicleId: UUID) -> Entity? {
+        entityRegistry[vehicleId]?.entity
+    }
+
     // MARK: - Store protocol
 
     public func intent(_ intent: Intent) async {

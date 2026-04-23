@@ -238,6 +238,44 @@ final class VehicleStoreTests: XCTestCase {
         XCTAssertEqual(component?.verticalInput, 0.6)
     }
 
+    // MARK: - Entity registry lookup (Phase 7)
+
+    /// `entity(for:)` returns the registered live entity so the
+    /// HUD's Board-button proximity check and the RootView's
+    /// camera re-parent handler can both address the same vehicle.
+    func testEntityForRegisteredIdReturnsSameEntity() async {
+        await store.intent(.summon(.drone, position: .zero))
+        let id = store.summonedVehicles[0].id
+        let entity = makeEntity(type: .drone, vehicleId: id)
+
+        store.register(entity: entity, for: id)
+
+        XCTAssertIdentical(store.entity(for: id), entity)
+    }
+
+    /// Unknown id lookup must be nil — the HUD's proximity loop
+    /// uses this as a soft miss rather than a hard crash when a
+    /// vehicle has been summoned but its scene-side entity hasn't
+    /// registered yet.
+    func testEntityForUnknownIdIsNil() {
+        XCTAssertNil(store.entity(for: UUID()))
+    }
+
+    /// After `unregister`, the lookup stops returning the entity
+    /// even if the caller still holds a strong reference. Important
+    /// for scene teardown so the HUD doesn't keep drawing a Board
+    /// button against a dismissed vehicle.
+    func testEntityForAfterUnregisterIsNil() async {
+        await store.intent(.summon(.drone, position: .zero))
+        let id = store.summonedVehicles[0].id
+        let entity = makeEntity(type: .drone, vehicleId: id)
+        store.register(entity: entity, for: id)
+
+        store.unregister(vehicleId: id)
+
+        XCTAssertNil(store.entity(for: id))
+    }
+
     // MARK: - Reset
 
     func testResetForTestingClearsState() async {
