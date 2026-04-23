@@ -308,7 +308,9 @@ public final class PlateauEnvironmentLoader {
     /// History:
     ///   - Phase 4 iter 2: 5.0 (first guess after "buildings sunk ~5 m")
     ///   - Phase 4 iter 4: 5.0 → 10.0 (still slightly sunk at 5 m)
-    internal static let envelopeTileGroundLift: Float = 10.0
+    ///   - Phase 4 iter 5: 10.0 → 15.0 (buildings at hilltops still clip
+    ///     terrain; extra 5 m defends against the worst LOD2 basement dip)
+    internal static let envelopeTileGroundLift: Float = 15.0
 
     // MARK: - Materials
 
