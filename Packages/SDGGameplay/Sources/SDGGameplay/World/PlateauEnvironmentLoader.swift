@@ -312,17 +312,17 @@ public final class PlateauEnvironmentLoader {
     ///     terrain; extra 5 m defends against the worst LOD2 basement dip)
     ///   - Phase 4 iter 7: 15.0 → 25.0 (large cluster of buildings still
     ///     visibly sunk)
-    ///   - Phase 4 iter 8: 25.0 → 20.0 (25 flew buildings visibly above
-    ///     terrain, 15 still sunk, 20 lands in the visually-acceptable
-    ///     middle for most tiles)
+    ///   - Phase 4 iter 8: 25.0 → 20.0 (25 flew buildings above terrain)
+    ///   - Phase 4 iter 9: 20.0 → 18.0 (20 still slightly high on most
+    ///     tiles; 18 trades the last 2 m back toward "sitting on" look)
     ///
-    /// 20 m is well outside "rounding artefact" territory — this
+    /// 18 m is well outside "rounding artefact" territory — this
     /// really is a structural tile-by-tile mismatch. A single global
     /// constant is the wrong shape; Phase 5 should do per-tile lift
     /// (derived from the envelope / DEM sample at each tile's centre)
     /// or per-building DEM re-projection in the Blender pipeline.
     /// Tracked in ADR-0007's "Known limitations" section.
-    internal static let envelopeTileGroundLift: Float = 20.0
+    internal static let envelopeTileGroundLift: Float = 18.0
 
     // MARK: - Materials
 
