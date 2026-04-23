@@ -238,19 +238,45 @@ def weld_and_split_loose(
     return [o for o in bpy.data.objects if o.type == "MESH"]
 
 
-def _centroid_local(obj: bpy.types.Object) -> Vector:
-    """Average of the mesh's vertex positions in the object's local
-    frame. We operate in local because after LOOSE split each object
-    inherits an identity transform (Blender re-origins the split
-    pieces), so local == world.
+def _centroid_xz(obj: bpy.types.Object) -> Vector:
+    """Mean X / Y of the mesh's vertices — used only for sampling the
+    DEM footprint. Vertical (Z) handled separately; see
+    `snap_building_to_dem`'s foundation-snap policy.
     """
     verts = obj.data.vertices
     if not verts:
         return Vector((0.0, 0.0, 0.0))
-    acc = Vector((0.0, 0.0, 0.0))
+    ax = 0.0
+    ay = 0.0
     for v in verts:
-        acc += v.co
-    return acc / len(verts)
+        ax += v.co.x
+        ay += v.co.y
+    return Vector((ax / len(verts), ay / len(verts), 0.0))
+
+
+def _foundation_z(obj: bpy.types.Object) -> float:
+    """Return a Z value representing the building's foundation — the
+    altitude the DEM should catch. We use the **5th percentile** of
+    vertex Z values rather than the strict minimum to skip LOD2
+    basement / deep-ground-surface outliers that would otherwise drag
+    the whole building into the terrain.
+
+    Rationale: PLATEAU LOD2 sometimes ships each building with a
+    narrow basement wall or an extended ground-surface polygon that
+    sits 1–5 m below the actual visible foundation. If we snap the
+    true minimum to the DEM, the visible ground floor ends up 1–5 m
+    above terrain; if we snap the centroid, the whole building
+    straddles the terrain ("flying" symptom on device). A low
+    percentile gets us "the lowest *typical* vertex", which matches
+    the visible ground floor.
+    """
+    zs = [v.co.z for v in obj.data.vertices]
+    if not zs:
+        return 0.0
+    zs.sort()
+    # 5th percentile.
+    idx = max(0, int(len(zs) * 0.05) - 1)
+    return zs[idx]
 
 
 def snap_building_to_dem(
@@ -259,8 +285,12 @@ def snap_building_to_dem(
     bldg_env: tuple[float, float, float],
     dem_env:  tuple[float, float, float],
 ) -> bool:
-    """Shift every vertex of `building` vertically so its centroid
-    lands on the DEM surface at the matching Miyagi XY.
+    """Shift every vertex of `building` vertically so its **foundation**
+    (5th-percentile Z) lands on the DEM surface at the matching Miyagi
+    XY. Foundation-snap beats centroid-snap on device because PLATEAU
+    tiles span ~150 m vertically; centre-anchoring puts half the
+    building below the DEM (invisibly clipped by terrain) and the
+    upper half visibly "flying" above ground.
 
     Coordinate chain (see module docstring):
       - Blender X = Miyagi easting
@@ -269,19 +299,19 @@ def snap_building_to_dem(
       - Bldg local origin  = bldg envelope centre
       - DEM local origin   = dem  envelope centre
 
-    Mapping: `dem_X = bldg_X + (bldg_env.east - dem_env.east)`, etc.
-
     Returns True on success, False if the DEM doesn't cover the XY
     (raycast misses). A miss means the building's footprint is
     outside the shipped DEM quadrant; we leave it unshifted so the
     runtime can still render it, just with its original nusamai Y.
     """
-    centroid = _centroid_local(building)
-    # bldg_blender → dem_blender (2 scalar offsets on X and Y)
+    xz_centre = _centroid_xz(building)
+    foundation_z = _foundation_z(building)
+
+    # bldg_blender → dem_blender (2 scalar offsets on X and Y).
     dx_to_dem = bldg_env[0] - dem_env[0]
     dy_to_dem = bldg_env[1] - dem_env[1]
-    dem_x = centroid.x + dx_to_dem
-    dem_y = centroid.y + dy_to_dem
+    dem_x = xz_centre.x + dx_to_dem
+    dem_y = xz_centre.y + dy_to_dem
 
     # Ray down through the DEM in its local frame. DEM object has
     # identity transform after import, so local == world here.
@@ -296,13 +326,14 @@ def snap_building_to_dem(
         return False
 
     dem_hit_z = hit_pos.z
-    # Back to bldg frame: `target_Z_bldg = dem_hit_z + (dem_env.elev - bldg_env.elev)`
-    target_z = dem_hit_z + (dem_env[2] - bldg_env[2])
-    delta_z = target_z - centroid.z
+    # Target Z in bldg frame for the FOUNDATION vertex:
+    #   real_elev = dem_hit_Z + dem_env.Z
+    #   bldg_local_Y for that real_elev = real_elev - bldg_env.Z
+    target_foundation_z = dem_hit_z + (dem_env[2] - bldg_env[2])
+    delta_z = target_foundation_z - foundation_z
 
-    # Bake the shift into vertex positions (not object.location) so
-    # the next `object.join` doesn't need to reconcile per-object
-    # transforms. Small loop — LOD2 buildings are tiny.
+    # Bake the shift into vertex positions so `object.join` doesn't
+    # need to reconcile per-object transforms.
     for v in building.data.vertices:
         v.co.z += delta_z
     return True
