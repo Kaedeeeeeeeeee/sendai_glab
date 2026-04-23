@@ -55,6 +55,7 @@ public final class DisasterSystem: System {
 
     private let shakeTargetsQuery: EntityQuery
     private let floodWaterQuery: EntityQuery
+    private let playerQuery: EntityQuery
 
     // MARK: - Store binding
 
@@ -96,6 +97,9 @@ public final class DisasterSystem: System {
         self.floodWaterQuery = EntityQuery(
             where: .has(DisasterFloodWaterComponent.self)
         )
+        self.playerQuery = EntityQuery(
+            where: .has(PlayerComponent.self)
+        )
     }
 
     // MARK: - System update
@@ -119,6 +123,13 @@ public final class DisasterSystem: System {
 
         // 3. Apply flood lift (reads current-frame state).
         applyFlood(state: store.state, context: context)
+
+        // 4. Mirror the earthquake-active flag onto every player
+        //    entity so `PlayerControlSystem` can dampen their input.
+        //    Idempotent — writing the same bool back each frame
+        //    costs one component read+write and we avoid an extra
+        //    cross-System event channel.
+        applyPlayerStagger(state: store.state, context: context)
     }
 
     // MARK: - Earthquake
@@ -167,6 +178,42 @@ public final class DisasterSystem: System {
                 // Snap back to baseline. If the tile was already at
                 // baseline this is a 3-float copy — negligible.
                 entity.position = baseline
+            }
+        }
+    }
+
+    // MARK: - Player stagger
+
+    /// Copy "is an earthquake currently active?" onto every
+    /// `PlayerComponent`-bearing entity so `PlayerControlSystem` can
+    /// scale input without subscribing to disaster events.
+    ///
+    /// Writing the component on every frame is cheap (one 1-byte
+    /// field, in-place mutation) and idempotent: the System is
+    /// effectively the authoritative setter, and any other code that
+    /// toggles `isStaggered` will be overwritten next frame. That
+    /// one-way ownership keeps the stagger lifecycle exactly aligned
+    /// with `DisasterState.earthquakeActive` so we can't strand the
+    /// player in a permanent half-speed mode if an event is dropped.
+    private func applyPlayerStagger(
+        state: DisasterState,
+        context: SceneUpdateContext
+    ) {
+        let active: Bool
+        if case .earthquakeActive = state {
+            active = true
+        } else {
+            active = false
+        }
+        for entity in context.entities(
+            matching: playerQuery,
+            updatingSystemWhen: .rendering
+        ) {
+            var component = entity.components[PlayerComponent.self]
+                ?? PlayerComponent()
+            if component.isStaggered != active {
+                component.isStaggered = active
+                entity.components.set(component)
             }
         }
     }
@@ -301,5 +348,31 @@ public final class DisasterSystem: System {
     /// `CharacterIdleFloatSystem.tickForTesting`).
     internal func tickForTesting(by dt: Float) {
         elapsedTime += dt
+    }
+
+    /// Exposed for tests: drive `applyPlayerStagger` directly without a
+    /// full `SceneUpdateContext`.
+    @discardableResult
+    internal func testApplyPlayerStagger(
+        state: DisasterState,
+        on players: [Entity]
+    ) -> Int {
+        let active: Bool
+        if case .earthquakeActive = state {
+            active = true
+        } else {
+            active = false
+        }
+        var count = 0
+        for entity in players {
+            var component = entity.components[PlayerComponent.self]
+                ?? PlayerComponent()
+            if component.isStaggered != active {
+                component.isStaggered = active
+                entity.components.set(component)
+            }
+            count += 1
+        }
+        return count
     }
 }

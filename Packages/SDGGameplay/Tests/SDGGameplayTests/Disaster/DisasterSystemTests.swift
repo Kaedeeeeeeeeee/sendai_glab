@@ -109,6 +109,45 @@ final class DisasterSystemTests: XCTestCase {
                        "idle must restore the baseline XZ+Y")
     }
 
+    // MARK: - Player stagger (Phase 8.1)
+
+    /// While an earthquake is active, `applyPlayerStagger` must flip
+    /// every `PlayerComponent`-bearing entity's `isStaggered` flag
+    /// to `true`. When the state returns to `.idle`, the flag must
+    /// flip back to `false`. This is the plumbing that couples
+    /// `DisasterStore` state to `PlayerControlSystem`'s input scale
+    /// without routing a dedicated event through the bus every frame.
+    func testPlayerStaggerFollowsEarthquakeState() {
+        PlayerComponent.registerComponent()
+        let system = makeSystem()
+        let player = Entity()
+        player.components.set(PlayerComponent())  // default: not staggered
+        XCTAssertEqual(
+            player.components[PlayerComponent.self]?.isStaggered,
+            false,
+            "baseline: player should not be staggered"
+        )
+
+        // Earthquake active → player staggered.
+        let active = DisasterState.earthquakeActive(
+            remaining: 1.5, intensity: 0.6, questId: nil
+        )
+        _ = system.testApplyPlayerStagger(state: active, on: [player])
+        XCTAssertEqual(
+            player.components[PlayerComponent.self]?.isStaggered,
+            true,
+            "earthquakeActive must flip isStaggered to true"
+        )
+
+        // Back to idle → stagger clears.
+        _ = system.testApplyPlayerStagger(state: .idle, on: [player])
+        XCTAssertEqual(
+            player.components[PlayerComponent.self]?.isStaggered,
+            false,
+            "idle must clear isStaggered"
+        )
+    }
+
     // MARK: - Multi-tile independence
 
     func testMultipleTilesShakeIndependently() {

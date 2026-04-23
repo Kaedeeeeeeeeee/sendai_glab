@@ -7,12 +7,13 @@
 // has a focused scope (drilling vs. disasters) and the tests can
 // instantiate one without the other.
 //
-// MVP scope: start SFX on `EarthquakeStarted` / `FloodStarted`. The
-// current `AudioService` has no stop-by-cue API, so the `Ended`
-// events are subscribed to but don't forcefully silence the loop.
-// Both placeholder SFX are short enough that they self-terminate.
-// Phase 8.1 adds `AudioService.stop(_:)` and hooks the Ended
-// subscribers to it.
+// Phase 8.1 scope: start SFX on `EarthquakeStarted` / `FloodStarted`
+// and stop them on `EarthquakeEnded` / `FloodEnded` via
+// `AudioService.stop(_:)`. The earthquake rumble now loops forever
+// (`loops: -1`) so it covers the whole shake; the Ended handler is
+// what cuts it off. Flood is still a one-shot but is symmetrically
+// stopped for safety (future longer flood asset would otherwise
+// outlast the rise).
 
 import Foundation
 import SDGCore
@@ -45,25 +46,34 @@ public final class DisasterAudioBridge {
     public func start() async {
         let audio = audioService
 
+        // Phase 8.1: rumble loops for the whole quake (`loops: -1`).
+        // The MVP `loops = 0` one-shot ended mid-shake and left the
+        // last second of the quake silent — rumble should cover the
+        // entire duration, so we loop until `EarthquakeEnded` stops it.
         let earthquakeStartToken = await eventBus.subscribe(
             EarthquakeStarted.self
         ) { _ in
             await MainActor.run { () -> Void in
-                audio.play(.earthquakeRumble)
+                audio.play(.earthquakeRumble, loops: -1)
             }
         }
 
-        // Subscribe to Ended even though MVP has no stop capability:
-        // installing the subscription now means Phase 8.1's
-        // `AudioService.stop(_:)` plug-in requires only the handler
-        // body to change, not this bridge's public contract.
+        // Phase 8.1: stop the rumble when the quake ends. Needed
+        // because the Started handler now loops forever; without this
+        // stop the rumble would play past the shake and into the next
+        // silent minute.
         let earthquakeEndToken = await eventBus.subscribe(
             EarthquakeEnded.self
         ) { _ in
-            // No-op for MVP. Placeholder is short enough to self-
-            // terminate. Phase 8.1: `audio.stop(.earthquakeRumble)`.
+            await MainActor.run { () -> Void in
+                audio.stop(.earthquakeRumble)
+            }
         }
 
+        // Flood start / end: the flood rise is a one-shot crescendo
+        // (not a loop) but we still stop it on `FloodEnded` for
+        // symmetry + safety if a future asset is longer than the
+        // rise duration.
         let floodStartToken = await eventBus.subscribe(
             FloodStarted.self
         ) { _ in
@@ -75,7 +85,9 @@ public final class DisasterAudioBridge {
         let floodEndToken = await eventBus.subscribe(
             FloodEnded.self
         ) { _ in
-            // MVP no-op; see EarthquakeEnded comment.
+            await MainActor.run { () -> Void in
+                audio.stop(.floodWater)
+            }
         }
 
         tokens = [
