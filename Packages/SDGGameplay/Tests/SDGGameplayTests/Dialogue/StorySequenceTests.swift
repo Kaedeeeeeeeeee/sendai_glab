@@ -128,8 +128,8 @@ final class StorySequenceTests: XCTestCase {
     }
 
     func testShippedBasenameCountMatchesJSONFixtureCount() {
-        // 14 files (the spec mentions 13 quests but ships 14 JSONs —
-        // quest5 and quest6 each split into numbered parts).
-        XCTAssertEqual(StoryLoader.shippedBasenames.count, 14)
+        // 16 files: the original 14 (13 quests + 1 split part) plus
+        // Phase 9 Part B's two sampling scenes (quest1.3 / quest1.4).
+        XCTAssertEqual(StoryLoader.shippedBasenames.count, 16)
     }
 }
