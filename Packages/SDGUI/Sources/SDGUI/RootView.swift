@@ -426,6 +426,17 @@ public struct RootView: View {
                 )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
+
+                // Phase 8: tag every corridor tile so DisasterSystem's
+                // `DisasterShakeTargetComponent` query picks them up.
+                // Done here (not in bootstrap) because the corridor
+                // loads inside this async closure — bootstrap's own
+                // tagging loop runs in parallel and typically races
+                // the 5-USDZ load, seeing `environmentRoot == nil`.
+                for tile in corridor.children {
+                    tile.components.set(DisasterShakeTargetComponent())
+                }
+                print("[SDG-Lab][p8] tagged \(corridor.children.count) corridor tile(s) with DisasterShakeTargetComponent")
             } catch {
                 print("[SDG-Lab] PlateauEnvironmentLoader failed: \(error)")
             }
@@ -806,6 +817,12 @@ public struct RootView: View {
         await dBridge.start()
         disasterAudioBridge = dBridge
 
+        // Safety net: also tag tiles here in case bootstrap finished
+        // before the RealityView's async corridor load. The primary
+        // tagging site is inside the RealityView make closure right
+        // after `sceneRefs.environmentRoot = corridor`; this block
+        // covers the "store rebind after a scene reload" edge case.
+        // `components.set` is idempotent so re-tagging does no harm.
         if let corridor = sceneRefs.environmentRoot {
             for tile in corridor.children {
                 tile.components.set(DisasterShakeTargetComponent())
