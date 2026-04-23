@@ -96,6 +96,41 @@ def join_all_meshes_into_one() -> bpy.types.Object | None:
     return bpy.context.view_layer.objects.active
 
 
+def weld_duplicate_vertices(obj: bpy.types.Object, threshold: float = 0.01) -> tuple[int, int]:
+    """Merge coincident vertices so DECIMATE can reason about the mesh
+    as a manifold surface rather than a cloud of independent triangles.
+
+    Why this matters (Phase 3 terrain playtest postmortem):
+
+    nusamai emits PLATEAU DEM as *triangle soup* — every triangle owns
+    its own 3 vertices, shared with nobody. A 1.7 M triangle mesh
+    therefore carries 5.1 M vertices (ratio 3 : 1). When Blender's
+    DECIMATE COLLAPSE runs on triangle soup, collapsing one triangle
+    does not snap its neighbours' coincident-but-separate vertices,
+    so the output develops visible holes — the ~1.7% retention ratio
+    we target for bundle size turns the continuous hillside into a
+    cloud of disconnected chunks floating in mid-air. The first
+    playtest screenshot showed exactly that.
+
+    After a `remove_doubles` with a 1 cm threshold, the 5.1 M verts
+    collapse to the ~800 K unique positions the source actually had.
+    Each vert is then shared by ~6 triangles on average (the expected
+    ratio for a triangulated heightfield). DECIMATE subsequently
+    collapses triangles by moving shared verts, which keeps the
+    surface manifold.
+
+    Returns `(before, after)` vertex counts for the logger.
+    """
+    before = len(obj.data.vertices)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.remove_doubles(threshold=threshold)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    after = len(obj.data.vertices)
+    return (before, after)
+
+
 def strip_materials(obj: bpy.types.Object) -> None:
     """Remove every material slot; DEM has no meaningful texture and we
     apply a flat toon material at runtime in RealityKit instead.
@@ -196,6 +231,11 @@ def convert(input_glb: Path, output_usdz: Path, target_triangles: int) -> None:
         raise RuntimeError("Imported GLB produced no mesh objects")
 
     strip_materials(joined)
+
+    # Weld coincident verts BEFORE decimating — see the function's
+    # docstring for the why (nusamai triangle-soup defeats DECIMATE).
+    weld_before, weld_after = weld_duplicate_vertices(joined, threshold=0.01)
+
     before, after, ratio = decimate_to_target(joined, target_triangles)
 
     export_usdz(output_usdz)
@@ -203,6 +243,7 @@ def convert(input_glb: Path, output_usdz: Path, target_triangles: int) -> None:
     size_kb = output_usdz.stat().st_size / 1024
     print(
         f"[OK] {input_glb.name} -> {output_usdz.name}  "
+        f"verts {weld_before:,} -> welded {weld_after:,}  "
         f"tris {before:,} -> {after:,} "
         f"(ratio {ratio:.4f})  "
         f"{size_kb:,.0f} KB"
