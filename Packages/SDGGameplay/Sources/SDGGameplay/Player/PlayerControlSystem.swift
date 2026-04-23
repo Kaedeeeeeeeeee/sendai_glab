@@ -97,7 +97,45 @@ public final class PlayerControlSystem: System {
             updatingSystemWhen: .rendering
         ) {
             applyInput(to: entity, deltaTime: deltaTime)
+            snapToGround(entity: entity, scene: context.scene)
         }
+    }
+
+    /// Ray-cast straight down from slightly above the player and snap
+    /// `entity.position.y` onto the first hit. Uses the existing
+    /// `CollisionComponent` the terrain loader installs via
+    /// `generateCollisionShapes(recursive:)`, so the call is a no-op
+    /// whenever the scene has no collision geometry (tests, previews,
+    /// the pre-terrain boot path). That means this system stays safe
+    /// to register unconditionally and the ground-follow kicks in
+    /// only when there's ground to follow.
+    ///
+    /// `context.scene.raycast` uses RealityKit's internal BVH, so this
+    /// is cheaper than walking the DEM's 90 K vertices per frame.
+    private func snapToGround(entity: Entity, scene: RealityKit.Scene) {
+        let worldPos = entity.position(relativeTo: nil)
+        // Start the ray 50 m above the player's current Y; length 200 m
+        // covers a 150 m dive in case the player walks off a cliff into
+        // a valley. If nothing is hit within that envelope, leave the
+        // player where they were — better to stall than to teleport.
+        let origin = SIMD3<Float>(worldPos.x, worldPos.y + 50, worldPos.z)
+        let hits = scene.raycast(
+            origin: origin,
+            direction: SIMD3<Float>(0, -1, 0),
+            length: 200,
+            query: .nearest,
+            mask: .default,
+            relativeTo: nil
+        )
+        guard let hit = hits.first else { return }
+        // The player rig has feet at entity-local Y = 0, so setting
+        // the entity's world Y to the hit point puts feet on the
+        // surface. A 10 cm margin keeps the camera from clipping the
+        // terrain mesh when the DEM has a sharp peak right under the
+        // player.
+        var newPos = entity.position
+        newPos.y = hit.position.y + 0.1
+        entity.position = newPos
     }
 
     // MARK: - Per-entity work

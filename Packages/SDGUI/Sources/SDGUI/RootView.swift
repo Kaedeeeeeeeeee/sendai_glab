@@ -290,12 +290,15 @@ public struct RootView: View {
         RealityView { content in
             Self.registerSystemsOnce()
 
-            // 1. Big green ground plane covering the entire 5-tile
-            //    corridor (~3 km east-west by ~2 km north-south).
-            //    Positioned slightly below Y=0 so the USDZ buildings'
-            //    ground-floor verts (at Y≈0 after centering) appear to
-            //    rest on it without z-fighting.
-            let ground = ModelEntity(
+            // 1. Fallback green ground plane — added only if the DEM
+            //    terrain later fails to load. When terrain ships (the
+            //    Phase 4 default), the plane would overlap with the
+            //    DEM mesh and z-fight, so we skip it; the terrain's
+            //    collision shapes catch the player via
+            //    `PlayerControlSystem.snapToGround`. The plane entity
+            //    is prepared here but only added to `content` inside
+            //    the terrain-load failure path below.
+            let fallbackGround = ModelEntity(
                 mesh: .generatePlane(width: 3500, depth: 2000),
                 materials: [SimpleMaterial(
                     color: .systemGreen,
@@ -303,8 +306,8 @@ public struct RootView: View {
                     isMetallic: false
                 )]
             )
-            ground.position = SIMD3<Float>(1250, -0.02, 500)   // corridor mid-point
-            content.add(ground)
+            fallbackGround.position = SIMD3<Float>(1250, -0.02, 500)
+            fallbackGround.generateCollisionShapes(recursive: false)
 
             // 2a. CityGML envelope manifest (Phase 4 / ADR-0007). Loaded
             //     once and shared by terrain + building loaders so both
@@ -323,7 +326,9 @@ public struct RootView: View {
 
             // 2b. PLATEAU DEM terrain. Positioned via the envelope
             //     manifest (or bottom-snapped if manifest is nil).
-            //     Failure is soft: scene still renders without terrain.
+            //     Failure is soft: we drop in the flat fallback plane
+            //     from step 1 instead so the player has something to
+            //     stand on and the scene still launches.
             var loadedTerrain: Entity?
             do {
                 let terrainLoader = TerrainLoader(
@@ -334,7 +339,8 @@ public struct RootView: View {
                 content.add(terrain)
                 loadedTerrain = terrain
             } catch {
-                print("[SDG-Lab][p4] TerrainLoader failed: \(error)")
+                print("[SDG-Lab][p4] TerrainLoader failed, using flat fallback plane: \(error)")
+                content.add(fallbackGround)
             }
 
             // 2c. PLATEAU corridor (5 pre-converted USDZ tiles). When

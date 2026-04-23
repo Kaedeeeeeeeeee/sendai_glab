@@ -275,7 +275,17 @@ public final class PlateauEnvironmentLoader {
         guard let manifest else {
             return (tile.localCenter, .bottomSnap)
         }
-        if let envelopePosition = manifest.realityKitPosition(for: tile.rawValue) {
+        if var envelopePosition = manifest.realityKitPosition(for: tile.rawValue) {
+            // Phase 4 iteration 2: on-device inspection shows buildings
+            // sinking ~5 m into the DEM surface. The envelope's Z centre
+            // doesn't quite line up with the mesh's geometric Y centre
+            // because CityGML's LOD2 bldg data includes basement walls
+            // and ground surfaces below the apparent foundation, dragging
+            // the mesh AABB lower than the envelope midpoint. A constant
+            // vertical nudge is the pragmatic fix while we stay within
+            // DEM-grid-resolution anyway (~30 m); Phase 5 can refine with
+            // per-building ground sampling if needed.
+            envelopePosition.y += Self.envelopeTileGroundLift
             return (envelopePosition, .none)
         }
         // Partial manifest — fall back per-tile so the rest of the
@@ -288,6 +298,13 @@ public final class PlateauEnvironmentLoader {
         )
         return (tile.localCenter, .bottomSnap)
     }
+
+    /// Constant upward nudge applied to every tile positioned via the
+    /// envelope manifest. See `tilePlacement` for the rationale.
+    /// Exposed `internal` so a future test can pin the value without
+    /// reopening the type — tuning this constant is a frequent kind
+    /// of playtest iteration.
+    internal static let envelopeTileGroundLift: Float = 5.0
 
     // MARK: - Materials
 
