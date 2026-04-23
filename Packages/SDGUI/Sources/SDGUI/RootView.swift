@@ -312,9 +312,11 @@ public struct RootView: View {
             //     value is passed to step 4 via the local `spawnY` and
             //     persisted in sceneRefs for future relocation needs.
             var spawnY: Float = 0
+            var loadedTerrain: Entity?
             do {
                 let terrain = try await terrainLoader.load()
                 content.add(terrain)
+                loadedTerrain = terrain
                 if let y = TerrainLoader.sampleTerrainY(
                     in: terrain,
                     atWorldXZ: SIMD2<Float>(0, 0)
@@ -334,8 +336,27 @@ public struct RootView: View {
             //     materials are applied inside the loader. If any tile
             //     is missing, the loader throws and we proceed without
             //     cityscape so the app still launches.
+            //
+            //     If terrain loaded, pass a sampler so each tile is
+            //     raised to the ground under it instead of sitting on
+            //     the universal Y = 0 plane. Without this, all 5 tiles
+            //     bottom-snap to the same Y and the ones over actual
+            //     hilltops (e.g. Aobayama) end up underground while
+            //     the ones over valleys float in mid-air.
+            //     Tile-level only — inside a 1 km tile residual drift
+            //     still shows because the tile is rigid. Deferred.
+            let terrainSampler: PlateauEnvironmentLoader.TerrainHeightSampler?
+            if let terrain = loadedTerrain {
+                terrainSampler = { xz in
+                    TerrainLoader.sampleTerrainY(in: terrain, atWorldXZ: xz)
+                }
+            } else {
+                terrainSampler = nil
+            }
             do {
-                let corridor = try await environmentLoader.loadDefaultCorridor()
+                let corridor = try await environmentLoader.loadDefaultCorridor(
+                    terrainSampler: terrainSampler
+                )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
             } catch {

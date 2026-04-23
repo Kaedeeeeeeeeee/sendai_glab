@@ -82,6 +82,17 @@ public final class PlateauEnvironmentLoader {
 
     // MARK: - Public API
 
+    /// Function type for sampling the terrain's Y at a given world XZ.
+    /// `RootView` supplies a closure that calls
+    /// `TerrainLoader.sampleTerrainY`; the loader stays ignorant of
+    /// where the terrain Y comes from so tests and alt-terrain
+    /// pipelines can substitute their own.
+    ///
+    /// Returning `nil` means "no data for this XZ" — callers should
+    /// fall back to leaving the tile at its default Y = 0.
+    public typealias TerrainHeightSampler =
+        @MainActor (_ worldXZ: SIMD2<Float>) -> Float?
+
     /// Load every tile in `PlateauTile.allCases` and compose them
     /// under a single root entity with `localCenter` offsets applied.
     ///
@@ -93,16 +104,45 @@ public final class PlateauEnvironmentLoader {
     /// iPad Air's budget (Phase 2 profiling task). Switch to a
     /// `TaskGroup` later if that measurement argues otherwise.
     ///
+    /// - Parameter terrainSampler: Optional function that returns the
+    ///   terrain Y at a world XZ. When supplied, each tile is raised
+    ///   (or lowered) by the terrain Y at *that tile's centre*, so
+    ///   the tile's lowest building foundation sits on the ground
+    ///   under that tile rather than on the universal Y = 0 plane.
+    ///   Leaving this `nil` gives the pre-Phase-3 behaviour where
+    ///   every tile sits at Y = 0 regardless of terrain elevation.
+    ///
     /// - Throws: First tile failure aborts the corridor load — one
     ///   missing tile means the corridor layout is incomplete, and
     ///   shipping a partial corridor hides the regression.
-    public func loadDefaultCorridor() async throws -> Entity {
+    public func loadDefaultCorridor(
+        terrainSampler: TerrainHeightSampler? = nil
+    ) async throws -> Entity {
         let root = Entity()
         root.name = "PlateauCorridor"
 
         for tile in PlateauTile.allCases {
             let tileRoot = try await loadTile(tile)
-            tileRoot.position += tile.localCenter
+
+            // Horizontal placement: the standard grid (row / column
+            // derived from the mesh id).
+            var position = tile.localCenter
+
+            // Vertical placement: if we have terrain, sample it at
+            // the tile's centre and lift the tile so its bottom-snap
+            // anchor (Y = 0 in local space) sits on the ground under
+            // the tile. Tile-level adjustment only — buildings within
+            // a 1 km tile still see up to ~50 m of ground-elevation
+            // variance that a rigid tile shift can't correct. That
+            // residual drift is acceptable for a first pass; Phase 4
+            // can re-mesh each tile against DEM if needed.
+            if let sampler = terrainSampler {
+                let xz = SIMD2<Float>(position.x, position.z)
+                if let y = sampler(xz) {
+                    position.y = y
+                }
+            }
+            tileRoot.position += position
             root.addChild(tileRoot)
         }
 
