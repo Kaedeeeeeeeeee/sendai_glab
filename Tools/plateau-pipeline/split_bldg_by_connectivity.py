@@ -256,26 +256,35 @@ def _centroid_xz(obj: bpy.types.Object) -> Vector:
 
 def _foundation_z(obj: bpy.types.Object) -> float:
     """Return a Z value representing the building's foundation — the
-    altitude the DEM should catch. We use the **5th percentile** of
-    vertex Z values rather than the strict minimum to skip LOD2
-    basement / deep-ground-surface outliers that would otherwise drag
-    the whole building into the terrain.
+    altitude the DEM should catch. We use the **25th percentile** of
+    vertex Z values rather than the strict minimum or a low percentile.
 
-    Rationale: PLATEAU LOD2 sometimes ships each building with a
-    narrow basement wall or an extended ground-surface polygon that
-    sits 1–5 m below the actual visible foundation. If we snap the
-    true minimum to the DEM, the visible ground floor ends up 1–5 m
-    above terrain; if we snap the centroid, the whole building
-    straddles the terrain ("flying" symptom on device). A low
-    percentile gets us "the lowest *typical* vertex", which matches
-    the visible ground floor.
+    Rationale: PLATEAU LOD2 ships each building with an *extended*
+    ground-surface polygon that drapes 1–5 m below the visible floor
+    (basement walls, flared foundation collars, sometimes a whole
+    terrace skirt). The minimum or a low percentile (≤10%) lands on
+    that skirt — so when we snap "foundation" to the DEM, we snap the
+    skirt to DEM, leaving the visible ground floor 1–5 m *above* the
+    terrain (the "still flying" symptom).
+
+    The 25th percentile steps past the skirt/basement outliers and
+    lands on actual ground-floor wall vertices, so snap puts the
+    visible first floor on the DEM. Chosen empirically: device
+    playtest showed the 5th percentile still float by ~3–5 m, while
+    the 25th sits the visible floor on-terrain for the majority of
+    the corridor buildings.
+
+    Tuning knob: if individual tiles come up buried, *lower* this
+    (e.g. 15%). If they fly, *raise* it (e.g. 35%). Below ~5% you
+    hit the basement skirt again; above ~50% you start anchoring on
+    wall mid-height and buildings bury.
     """
     zs = [v.co.z for v in obj.data.vertices]
     if not zs:
         return 0.0
     zs.sort()
-    # 5th percentile.
-    idx = max(0, int(len(zs) * 0.05) - 1)
+    # 25th percentile.
+    idx = max(0, int(len(zs) * 0.25) - 1)
     return zs[idx]
 
 
@@ -286,7 +295,7 @@ def snap_building_to_dem(
     dem_env:  tuple[float, float, float],
 ) -> bool:
     """Shift every vertex of `building` vertically so its **foundation**
-    (5th-percentile Z) lands on the DEM surface at the matching Miyagi
+    (25th-percentile Z) lands on the DEM surface at the matching Miyagi
     XY. Foundation-snap beats centroid-snap on device because PLATEAU
     tiles span ~150 m vertically; centre-anchoring puts half the
     building below the DEM (invisibly clipped by terrain) and the
