@@ -176,36 +176,43 @@
 
 **合計 408 tests / 0 failure**(SDGCore 22 + SDGGameplay 317 + SDGPlatform 20 + SDGUI 49)
 
-### Phase 3 PLATEAU DEM Terrain — 完了(2026-04-22、branch `feat/phase-3-plateau-dem`)
+### Phase 3 PLATEAU DEM Terrain — **部分採用 / runtime は Phase 4 に延期**(2026-04-23、PR #11)
 
-**浮遊建物の改善**。真機未テスト(次回 f.shera 確認予定)。
+f.shera 真機テストで 4 種類の tile alignment 戦略(flat / absolute-lift / additive-lift /
+terrain-shift)すべて視覚的に失敗。**真因は nusamai 0.1.0 が各 GLB の real-world
+Y origin を捨てる**こと — ランタイムにだけ触れる修正では本質的に解けない。
 
-- [x] nusamai DEM module → glTF 変換(EPSG:6677, 1 tile 574036_05 / 5×5km)
-- [x] Blender 過激 decimation(1.7M → 30K 三角形)+ bmesh orphan-vertex purge
-      (修正前:41 MB for 15K tris → 修正後:2.1 MB for 30K tris)
-- [x] `Tools/plateau-pipeline/dem_to_terrain_usdz.py` + `convert_terrain_dem.sh`
-- [x] `Resources/Environment/Terrain_Sendai_574036_05.usdz`(2.1 MB、LFS)
-- [x] `TerrainLoader.swift`:EnvironmentCenterer で bottom-snap(既存建物と同じ約束事)
-- [x] RootView:ground plane → terrain → buildings の順で描画
-- [x] 3 tests 追加(初期化・resource-not-found・basename 整合性)
+ADR-0006 に postmortem と Phase 4 計画を記録。本 PR #11 では:
 
-**合計 411 tests / 0 failure**(SDGGameplay 320)
+**採用**:
+- [x] オフライン DEM 変換管線(`Tools/plateau-pipeline/dem_to_terrain_usdz.py` +
+      `convert_terrain_dem.sh`): nusamai → Blender 過激 decimate
+      (1.7M → 30K 三角形、`remove_doubles` + orphan-vert purge で 41MB → 1.3MB)
+- [x] `ToonMaterialFactory.makeHardCelMaterial`:硬めの cel 見た目
+      (emissive floor 35% → 60%、specular/clearcoat ゼロ)。建物と任意の地形両方で利用可。
+- [x] ADR-0006: DEM alignment を Phase 4 に延期する判断と方案 A 計画
 
-**既知の限界**(follow-up PR で改善):
-- nusamai は各 GLB を自分の AABB 中心に置き、real-world origin を捨てる。
-  ので terrain ↔ building 間の完璧な座標整合は不能。今は両方 bottom-snap で
-  「Y=0 = 最低点」という合意で妥協。局所的な浮き沈み残る可能性あり。
-- 真機チェック → 必要なら Y offset を調整、または CityGML envelope 解析で
-  real-world 座標を復元するパイプ追加。
+**延期(ADR-0006 の対応作業、Phase 4 専用 PR)**:
+- [ ] CityGML `<gml:Envelope>` パーサ(Swift or Python) → 各 GLB の real-world 原点復元
+- [ ] 復元した原点でランタイム配置: `entity.position = realWorldOrigin - spawnOrigin`
+- [ ] `TerrainLoader.swift` + `Terrain_Sendai_574036_05.usdz` は Phase 4 で再投入
+- [ ] 見積:1〜1.5 日専用 PR
+
+**既知の教訓**:
+1. nusamai 0.1.0 の gltf sink は各ファイルを自前の AABB 中心に移す → 座標は失われる
+2. 1km PLATEAU 建物 tile は real-world で 150m 垂直跨度を持つ場合がある(青葉山)。
+   bottom-snap は "最低点 = Y=0" なので、その tile の建物全てが地形相対で +150m 浮く
+3. ランタイム側の tile-level rigid shift では上記 2 つを補正できない
+4. 「諦める判断」はコストを抑える上で必要 — 4 次試行した後明らかだった
 
 ### Phase 3 残り候補
 
-1. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
-2. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
-3. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
-4. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
-5. 真の薄片写真(f.shera 研究室素材)
-6. DEM alignment の完全解決(CityGML envelope 解析で real-world origin 復元)
+1. **DEM alignment の完全解決** (ADR-0006 方案 A、Phase 4 最優先)
+2. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
+3. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
+4. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
+5. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
+6. 真の薄片写真(f.shera 研究室素材)
 
 ## よく参照するパス
 

@@ -82,17 +82,6 @@ public final class PlateauEnvironmentLoader {
 
     // MARK: - Public API
 
-    /// Function type for sampling the terrain's Y at a given world XZ.
-    /// `RootView` supplies a closure that calls
-    /// `TerrainLoader.sampleTerrainY`; the loader stays ignorant of
-    /// where the terrain Y comes from so tests and alt-terrain
-    /// pipelines can substitute their own.
-    ///
-    /// Returning `nil` means "no data for this XZ" — callers should
-    /// fall back to leaving the tile at its default Y = 0.
-    public typealias TerrainHeightSampler =
-        @MainActor (_ worldXZ: SIMD2<Float>) -> Float?
-
     /// Load every tile in `PlateauTile.allCases` and compose them
     /// under a single root entity with `localCenter` offsets applied.
     ///
@@ -104,54 +93,22 @@ public final class PlateauEnvironmentLoader {
     /// iPad Air's budget (Phase 2 profiling task). Switch to a
     /// `TaskGroup` later if that measurement argues otherwise.
     ///
-    /// - Parameter terrainSampler: Optional function that returns the
-    ///   terrain Y at a world XZ. When supplied, each tile is raised
-    ///   (or lowered) by the terrain Y at *that tile's centre*, so
-    ///   the tile's lowest building foundation sits on the ground
-    ///   under that tile rather than on the universal Y = 0 plane.
-    ///   Leaving this `nil` gives the pre-Phase-3 behaviour where
-    ///   every tile sits at Y = 0 regardless of terrain elevation.
-    ///
     /// - Throws: First tile failure aborts the corridor load — one
     ///   missing tile means the corridor layout is incomplete, and
     ///   shipping a partial corridor hides the regression.
-    public func loadDefaultCorridor(
-        terrainSampler: TerrainHeightSampler? = nil
-    ) async throws -> Entity {
+    ///
+    /// DEM integration note (ADR-0006): Phase 3 attempted to lift
+    /// each tile onto a sampled DEM surface. Every compromise
+    /// strategy failed on device because nusamai strips the real-
+    /// world Y origin from each GLB. Alignment is deferred to Phase 4
+    /// via CityGML envelope parsing. Until then, every tile sits on
+    /// the shared Y = 0 bottom-snap plane.
+    public func loadDefaultCorridor() async throws -> Entity {
         let root = Entity()
         root.name = "PlateauCorridor"
 
-        // NOTE — Phase 3 alignment compromise:
-        //
-        // Three attempts at per-tile DEM alignment (Y=0 flat, tile-
-        // level terrain lift, two flavours of lift maths) all looked
-        // worse on device than a single flat plane because nusamai
-        // strips the real-world Y offset from each GLB. Without a
-        // shared reference point, the 150 m vertical span of each
-        // tile (Aobayama genuinely has 80 m of elevation variance
-        // across the 1 km cell, plus buildings themselves) causes
-        // either "buildings floating" or "buildings buried" depending
-        // on which compromise we pick.
-        //
-        // We therefore ignore `terrainSampler` for now and put every
-        // tile at Y = 0, the pre-Phase-3 behaviour. The terrain still
-        // renders as a visible backdrop; perfect alignment is Phase 4
-        // work (either CityGML-envelope-based real-origin recovery,
-        // or offline per-building DEM re-projection).
-        //
-        // The parameter stays on the signature for forwards
-        // compatibility — future alignment work can opt in without a
-        // signature churn.
-        _ = terrainSampler
-
         for tile in PlateauTile.allCases {
             let tileRoot = try await loadTile(tile)
-
-            // Preserve horizontal centring (`+=` does not overwrite
-            // the `-boundsCentreX` / `-boundsCentreZ` that
-            // `centerHorizontallyAndGroundY` installed). Y stays at
-            // the bottom-snap offset; tiles share Y = 0 as their
-            // "lowest foundation" plane.
             tileRoot.position += tile.localCenter
             root.addChild(tileRoot)
         }

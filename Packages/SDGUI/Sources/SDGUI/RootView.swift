@@ -126,11 +126,6 @@ public struct RootView: View {
     /// Reused across view rebuilds; cheap to construct.
     @State private var environmentLoader = PlateauEnvironmentLoader()
 
-    /// Loads the PLATEAU DEM terrain USDZ so the scene has real elevation
-    /// under the 5 building tiles. Phase 3 ships one terrain tile that
-    /// covers the corridor's NE quadrant (2nd-mesh 574036, sub _05).
-    @State private var terrainLoader = TerrainLoader()
-
     /// Loads `Character_*.usdz` from the app bundle and attaches Player
     /// components + camera.
     @State private var characterLoader = CharacterLoader()
@@ -297,43 +292,18 @@ public struct RootView: View {
             ground.position = SIMD3<Float>(1250, -0.02, 500)   // corridor mid-point
             content.add(ground)
 
-            // 2a. PLATEAU DEM terrain. Loaded BEFORE the building
-            //     tiles so it renders underneath them in the implicit
-            //     draw order. Failure (missing USDZ) is soft: we log
-            //     and fall back to the flat ground plane from step 1.
+            // 2. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
+            //    materials are applied inside the loader. If any tile
+            //    is missing, the loader throws and we proceed without
+            //    cityscape so the app still launches.
             //
-            // Phase 3 alignment postmortem: nusamai strips each GLB's
-            // real-world Y origin, so buildings and DEM share no
-            // reference point. Three tile-lift strategies we tried
-            // all compromised (buildings either float or bury). The
-            // best we can do today is shift the *terrain* so its
-            // surface at the spawn XZ sits on Y = 0 — the same plane
-            // the buildings bottom-snap to. This aligns terrain +
-            // buildings in the spawn area; far from spawn, the real
-            // PLATEAU elevation variance still shows. Proper fix:
-            // Phase 4 CityGML-envelope origin recovery.
-            var spawnY: Float = 1.0
-            do {
-                let terrain = try await terrainLoader.load()
-                content.add(terrain)
-
-                if let terrainSpawnY = TerrainLoader.sampleTerrainY(
-                    in: terrain,
-                    atWorldXZ: SIMD2<Float>(0, 0)
-                ) {
-                    terrain.position.y -= terrainSpawnY
-                    print(
-                        "[SDG-Lab] terrain shifted by -\(terrainSpawnY) " +
-                        "so surface at spawn = Y=0"
-                    )
-                }
-            } catch {
-                print("[SDG-Lab] TerrainLoader failed: \(error)")
-            }
-
-            // 2b. PLATEAU corridor. All 5 tiles sit at the shared
-            //     Y = 0 bottom-snap plane. No per-tile DEM lift —
-            //     see the note inside `loadDefaultCorridor` for why.
+            //    DEM terrain integration is deferred to Phase 4 per
+            //    ADR-0006: nusamai strips each GLB's real-world Y
+            //    origin, so runtime tile-level alignment can't produce
+            //    a visually correct result without CityGML envelope
+            //    parsing. The offline conversion pipeline for DEM
+            //    lives in `Tools/plateau-pipeline/` for the Phase 4
+            //    follow-up.
             do {
                 let corridor = try await environmentLoader.loadDefaultCorridor()
                 content.add(corridor)
@@ -394,13 +364,10 @@ public struct RootView: View {
                 capsule.addChild(camera)
                 body = capsule
             }
-            // Anchor the player on top of the DEM-sampled spawn Y so
-            // the character appears on the Aobayama hilltop surface
-            // rather than hundreds of metres underground (which is
-            // what spawning at Y=0 would produce now that we have real
-            // terrain). `spawnY` is 0 when terrain failed to load, so
-            // the flat-plane fallback also still works.
-            body.position = SIMD3<Float>(0, spawnY, 0)
+            // Spawn at the world origin. Without DEM terrain (Phase 4
+            // work, ADR-0006), the scene floor is the flat 3500×2000 m
+            // green plane from step 1, which sits just below Y = 0.
+            body.position = SIMD3<Float>(0, 0, 0)
             content.add(body)
             sceneRefs.playerEntity = body
             playerStore.attach(playerEntity: body)
