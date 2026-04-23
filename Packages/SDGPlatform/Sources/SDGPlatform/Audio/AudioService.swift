@@ -158,21 +158,31 @@ open class AudioService {
 
     // MARK: - Public API
 
-    /// Play an effect cue once.
+    /// Play an effect cue.
     ///
     /// - Parameters:
     ///   - effect: Cue identifier.
     ///   - volume: Per-call gain multiplier (0…1). Final volume =
     ///     `volume * masterVolume`.
+    ///   - loops: `AVAudioPlayer.numberOfLoops` — `0` = play once (the
+    ///     default), `-1` = loop forever until `stop(_:)` /
+    ///     `stop(category:)` / `stopAll()` interrupts, `N` = play `N+1`
+    ///     times total. Introduced in Phase 8.1 so the earthquake
+    ///     rumble can hold for the whole quake instead of firing a
+    ///     one-shot that ends mid-shake.
     /// - Returns: A handle for the playback, or `nil` if the resource
     ///   could not be resolved or the player failed to initialise.
     ///   Callers typically ignore the handle (fire-and-forget).
     ///
     /// Never throws: SFX are best-effort UX candy; a missing asset or
     /// corrupt file should not abort gameplay. Failures are logged via
-    /// the returned `nil` and the (future) `os.log` channel.
+    /// the returned `nil` and the `os.log` channel.
     @discardableResult
-    open func play(_ effect: AudioEffect, volume: Float = 1.0) -> UUID? {
+    open func play(
+        _ effect: AudioEffect,
+        volume: Float = 1.0,
+        loops: Int = 0
+    ) -> UUID? {
         // Pick a URL. Variant cues sample uniformly; single-file cues
         // return the lone URL. A nil here means "no candidate bundle
         // resource at all" — bail out after shouting so Phase 2's
@@ -196,6 +206,7 @@ open class AudioService {
             if !cached.isPlaying {
                 cached.currentTime = 0
                 cached.volume = effectiveVolume
+                cached.numberOfLoops = loops
                 let ok = cached.play()
                 if !ok {
                     print("[SDG-Lab][audio] cached AVAudioPlayer.play() returned false for \(url.lastPathComponent)")
@@ -207,6 +218,7 @@ open class AudioService {
             // First play of this URL in this session — create, cache,
             // play once. Keeps the hot path at one allocation per cue.
             if let player = makePlayer(url: url, volume: effectiveVolume) {
+                player.numberOfLoops = loops
                 cache[effect, default: [:]][url] = player
                 let ok = player.play()
                 if !ok {
@@ -218,7 +230,11 @@ open class AudioService {
         }
 
         // Transient branch: cached player is mid-sample. Spin up a
-        // one-shot, retain until it finishes, then drop it.
+        // one-shot, retain until it finishes, then drop it. A looping
+        // transient would never land in the sweeper, so we deliberately
+        // only honour `loops` on the cached branch — the transient path
+        // is the "two overlapping one-shots" story and looping isn't
+        // meaningful there.
         guard let oneShot = makePlayer(url: url, volume: effectiveVolume) else {
             return nil
         }
@@ -226,6 +242,58 @@ open class AudioService {
         oneShot.delegate = releaseDelegate
         transientPlayers[handle] = oneShot
         return oneShot.play() ? handle : nil
+    }
+
+    // MARK: - Stop API
+
+    /// Stop every active `AVAudioPlayer` associated with `effect`.
+    ///
+    /// Added in Phase 8.1 so the disaster bridge can silence a looping
+    /// rumble on `EarthquakeEnded` without resorting to `stopAll()`
+    /// (which would also cut unrelated cues like footsteps). Cached
+    /// players are stopped + rewound in place so the next
+    /// `play(effect)` reuses them; transient one-shots for the same
+    /// cue's URLs are stopped and dropped since they're single-use
+    /// anyway.
+    ///
+    /// No-op if the cue has never been played.
+    ///
+    /// `open` so test fixtures (e.g. `RecordingAudioService` in
+    /// `DisasterAudioBridgeTests`) can subclass and record calls.
+    open func stop(_ effect: AudioEffect) {
+        if let players = cache[effect] {
+            for player in players.values where player.isPlaying {
+                player.stop()
+                player.currentTime = 0
+            }
+        }
+        // Drop any transient one-shot whose URL belongs to this cue's
+        // candidate pool. Transient players are keyed by a UUID handle
+        // (not by cue) so we have to walk the map and match on URL.
+        let cueURLs = transientURLSet(for: effect)
+        transientPlayers = transientPlayers.filter { _, player in
+            guard let playerURL = player.url, cueURLs.contains(playerURL) else {
+                return true
+            }
+            if player.isPlaying { player.stop() }
+            return false
+        }
+    }
+
+    /// Stop every active `AVAudioPlayer` whose cue category matches.
+    /// Useful when a caller holds only the category key (string form
+    /// matches the on-disk directory name; see `AudioEffect.category`).
+    /// The typed overload is preferred for new code.
+    open func stop(category: String) {
+        for effect in AudioEffect.allCases where effect.category == category {
+            stop(effect)
+        }
+    }
+
+    /// Typed variant of `stop(category:)`. Phase 8.1 introduced
+    /// `AudioCategory` so callers don't match on magic strings.
+    open func stop(category: AudioCategory) {
+        stop(category: category.rawValue)
     }
 
     /// Stop every sound the service currently knows about. Cached
@@ -245,6 +313,36 @@ open class AudioService {
     }
 
     // MARK: - Internals
+
+    /// All candidate URLs the cue could resolve to. Used by
+    /// `stop(_:)` to identify transient one-shots that originated from
+    /// this cue without needing to re-run the random-variant dance.
+    private func transientURLSet(for effect: AudioEffect) -> Set<URL> {
+        var urls: Set<URL> = []
+        // Cache URLs (the ones we know for sure were used).
+        if let cached = cache[effect] {
+            urls.formUnion(cached.keys)
+        }
+        // Also include any still-resolvable bundle URLs for the cue.
+        // A transient one-shot can only have been created from one of
+        // these, so matching here is safe.
+        for basename in effect.resolveResourceNames() {
+            if let url = bundle.url(
+                forResource: basename,
+                withExtension: "m4a",
+                subdirectory: "\(subdirectory)/\(effect.category)"
+            ) {
+                urls.insert(url)
+            }
+            if let url = bundle.url(
+                forResource: basename,
+                withExtension: "m4a"
+            ) {
+                urls.insert(url)
+            }
+        }
+        return urls
+    }
 
     /// Resolve a cue to a concrete bundle URL, sampling variants as
     /// needed. `nil` if none of the candidates exist in the bundle.
