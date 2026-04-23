@@ -304,7 +304,11 @@ public final class PlateauEnvironmentLoader {
     /// Exposed `internal` so a future test can pin the value without
     /// reopening the type — tuning this constant is a frequent kind
     /// of playtest iteration.
-    internal static let envelopeTileGroundLift: Float = 5.0
+    ///
+    /// History:
+    ///   - Phase 4 iter 2: 5.0 (first guess after "buildings sunk ~5 m")
+    ///   - Phase 4 iter 4: 5.0 → 10.0 (still slightly sunk at 5 m)
+    internal static let envelopeTileGroundLift: Float = 10.0
 
     // MARK: - Materials
 

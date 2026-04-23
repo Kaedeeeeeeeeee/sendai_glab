@@ -49,16 +49,16 @@ public final class PlayerControlSystem: System {
     /// want `.after(PhysicsSystem.self)` here.
     public static let dependencies: [SystemDependency] = []
 
-    /// Forward speed at full-stick, metres per second. Phase 4 bumped
-    /// the testing-phase value to 800 m/s (100× the shippable 8 m/s)
-    /// so f.shera can traverse the 5 km PLATEAU corridor in seconds
-    /// while probing envelope alignment across tiles. Reset to 8 m/s
-    /// before shipping — 800 m/s is faster than terminal velocity.
+    /// Forward speed at full-stick, metres per second. Phase 4 QA
+    /// speed — must be reset to 8 m/s (ship default) once alignment
+    /// verification is done.
     ///
     /// History:
     ///   - Phase 2 Alpha: 2.0 → 8.0 (walking too slow for 1 km tiles)
-    ///   - Phase 4 iter 3: 8.0 → 800.0 (test-flight speed for alignment QA)
-    public static let moveSpeed: Float = 800.0
+    ///   - Phase 4 iter 3: 8.0 → 800.0 (100×, too fast on device)
+    ///   - Phase 4 iter 4: 800.0 → 80.0 (10× — fast enough to sweep
+    ///     the corridor, slow enough to actually see buildings)
+    public static let moveSpeed: Float = 80.0
 
     /// Maximum absolute pitch, radians. ±80° ≈ ±1.396 rad. Keeps the
     /// camera from flipping past vertical.
