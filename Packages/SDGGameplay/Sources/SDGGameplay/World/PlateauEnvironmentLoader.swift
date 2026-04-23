@@ -96,6 +96,13 @@ public final class PlateauEnvironmentLoader {
     /// - Throws: First tile failure aborts the corridor load — one
     ///   missing tile means the corridor layout is incomplete, and
     ///   shipping a partial corridor hides the regression.
+    ///
+    /// DEM integration note (ADR-0006): Phase 3 attempted to lift
+    /// each tile onto a sampled DEM surface. Every compromise
+    /// strategy failed on device because nusamai strips the real-
+    /// world Y origin from each GLB. Alignment is deferred to Phase 4
+    /// via CityGML envelope parsing. Until then, every tile sits on
+    /// the shared Y = 0 bottom-snap plane.
     public func loadDefaultCorridor() async throws -> Entity {
         let root = Entity()
         root.name = "PlateauCorridor"
@@ -213,9 +220,18 @@ public final class PlateauEnvironmentLoader {
         toDescendantsOf root: Entity,
         baseColor: SIMD3<Float>
     ) {
-        let material = ToonMaterialFactory.makeLayerMaterial(
-            baseColor: baseColor,
-            strength: 0.7
+        // Phase 3 Toon upgrade: buildings now use the "harder cel"
+        // variant which pushes emissive higher and removes residual
+        // specular, so the PLATEAU facades read as flat cartoon
+        // volumes rather than realistic-lit buildings with a tint.
+        // Geology layers inside the outcrop keep the softer
+        // `makeLayerMaterial` so the drillable rock stays visually
+        // distinct from the surrounding city.
+        //
+        // True NdotL step-ramp (ADR-0004 scheme A) is still follow-up
+        // work pending Reality Composer Pro authoring.
+        let material = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: baseColor
         )
 
         // Iterative depth-first walk. Recursing into the built-in

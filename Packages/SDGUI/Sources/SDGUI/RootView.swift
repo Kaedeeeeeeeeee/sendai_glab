@@ -296,6 +296,14 @@ public struct RootView: View {
             //    materials are applied inside the loader. If any tile
             //    is missing, the loader throws and we proceed without
             //    cityscape so the app still launches.
+            //
+            //    DEM terrain integration is deferred to Phase 4 per
+            //    ADR-0006: nusamai strips each GLB's real-world Y
+            //    origin, so runtime tile-level alignment can't produce
+            //    a visually correct result without CityGML envelope
+            //    parsing. The offline conversion pipeline for DEM
+            //    lives in `Tools/plateau-pipeline/` for the Phase 4
+            //    follow-up.
             do {
                 let corridor = try await environmentLoader.loadDefaultCorridor()
                 content.add(corridor)
@@ -356,6 +364,9 @@ public struct RootView: View {
                 capsule.addChild(camera)
                 body = capsule
             }
+            // Spawn at the world origin. Without DEM terrain (Phase 4
+            // work, ADR-0006), the scene floor is the flat 3500×2000 m
+            // green plane from step 1, which sits just below Y = 0.
             body.position = SIMD3<Float>(0, 0, 0)
             content.add(body)
             sceneRefs.playerEntity = body

@@ -166,14 +166,48 @@
 
 **合計 394 tests / 0 failure**(SDGCore 22 + SDGGameplay 303 + SDGPlatform 20 + SDGUI 49)
 
-### Phase 3 候補(未着手、優先順位は f.shera と決めていない)
+### Phase 3 Quest Chain — 完了(2026-04-22、PR #10)
 
-**次の着手**(2026-04-22 Audio fix 直後に選択):
-→ Quest 自動 chain + DialogueFinished → objective 自動完了ブリッジ
-   (branch `feat/phase-3-quest-chain`、Phase 2 Beta の半実装を完成)
+- [x] `StoryProgressionMap.builtIn`:10 条 dialogue→objective + 12 条 quest→successor
+- [x] `StoryProgressionBridge`:DialogueFinished + QuestCompleted 購読 → QuestStore.intent
+- [x] RootView:旧 hand-wired dialogueFinishedToken 撤去、bootstrap で q.lab.intro
+      を 1 回 auto-start(冪等)
+- [x] 14 tests 追加(map 整合性 6 + bridge 挙動 8)
 
-残り候補(次回以降):
-1. PLATEAU DEM(terrain)統合 — 浮遊建物の根本修正
+**合計 408 tests / 0 failure**(SDGCore 22 + SDGGameplay 317 + SDGPlatform 20 + SDGUI 49)
+
+### Phase 3 PLATEAU DEM Terrain — **部分採用 / runtime は Phase 4 に延期**(2026-04-23、PR #11)
+
+f.shera 真機テストで 4 種類の tile alignment 戦略(flat / absolute-lift / additive-lift /
+terrain-shift)すべて視覚的に失敗。**真因は nusamai 0.1.0 が各 GLB の real-world
+Y origin を捨てる**こと — ランタイムにだけ触れる修正では本質的に解けない。
+
+ADR-0006 に postmortem と Phase 4 計画を記録。本 PR #11 では:
+
+**採用**:
+- [x] オフライン DEM 変換管線(`Tools/plateau-pipeline/dem_to_terrain_usdz.py` +
+      `convert_terrain_dem.sh`): nusamai → Blender 過激 decimate
+      (1.7M → 30K 三角形、`remove_doubles` + orphan-vert purge で 41MB → 1.3MB)
+- [x] `ToonMaterialFactory.makeHardCelMaterial`:硬めの cel 見た目
+      (emissive floor 35% → 60%、specular/clearcoat ゼロ)。建物と任意の地形両方で利用可。
+- [x] ADR-0006: DEM alignment を Phase 4 に延期する判断と方案 A 計画
+
+**延期(ADR-0006 の対応作業、Phase 4 専用 PR)**:
+- [ ] CityGML `<gml:Envelope>` パーサ(Swift or Python) → 各 GLB の real-world 原点復元
+- [ ] 復元した原点でランタイム配置: `entity.position = realWorldOrigin - spawnOrigin`
+- [ ] `TerrainLoader.swift` + `Terrain_Sendai_574036_05.usdz` は Phase 4 で再投入
+- [ ] 見積:1〜1.5 日専用 PR
+
+**既知の教訓**:
+1. nusamai 0.1.0 の gltf sink は各ファイルを自前の AABB 中心に移す → 座標は失われる
+2. 1km PLATEAU 建物 tile は real-world で 150m 垂直跨度を持つ場合がある(青葉山)。
+   bottom-snap は "最低点 = Y=0" なので、その tile の建物全てが地形相対で +150m 浮く
+3. ランタイム側の tile-level rigid shift では上記 2 つを補正できない
+4. 「諦める判断」はコストを抑える上で必要 — 4 次試行した後明らかだった
+
+### Phase 3 残り候補
+
+1. **DEM alignment の完全解決** (ADR-0006 方案 A、Phase 4 最優先)
 2. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
 3. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
 4. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)

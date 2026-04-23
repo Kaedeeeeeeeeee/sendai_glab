@@ -125,7 +125,7 @@
 		EC91E144116FC0A33EB5D676 /* UI_Open.m4a */ = {isa = PBXFileReference; path = UI_Open.m4a; sourceTree = "<group>"; };
 		F44D2E0DFA8A57D80924E844 /* Environment_Sendai_57403618.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Environment_Sendai_57403618.usdz; sourceTree = "<group>"; };
 		FA0FDF6FAB87BB1B12B37139 /* Character_Teacher.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Character_Teacher.usdz; sourceTree = "<group>"; };
-		"TEMP_0C20D47D-D952-4412-ABBF-DE1EAF26D45A" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
+		"TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -327,10 +327,10 @@
 			path = SFX;
 			sourceTree = "<group>";
 		};
-		"TEMP_52C6EB67-781B-4B5B-ACE2-CB90A1CDB344" /* sendai_glab */ = {
+		"TEMP_77D5FF69-9182-4E86-A410-1BAF0BE69DFE" /* sendai_glab */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_0C20D47D-D952-4412-ABBF-DE1EAF26D45A" /* LocalSigning.xcconfig */,
+				"TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */,
 			);
 			path = sendai_glab;
 			sourceTree = "<group>";
@@ -546,7 +546,7 @@
 		};
 		A18825CECF467420BB9E11DC /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_0C20D47D-D952-4412-ABBF-DE1EAF26D45A" /* LocalSigning.xcconfig */;
+			baseConfigurationReference = "TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -634,7 +634,7 @@
 		};
 		FD7DEEC2B67B5D0A13C5A26E /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_0C20D47D-D952-4412-ABBF-DE1EAF26D45A" /* LocalSigning.xcconfig */;
+			baseConfigurationReference = "TEMP_1E0A5E32-5ACB-45CF-AEDF-2E1823660772" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

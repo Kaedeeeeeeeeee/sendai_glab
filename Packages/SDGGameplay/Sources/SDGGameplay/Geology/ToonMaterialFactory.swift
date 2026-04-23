@@ -154,6 +154,85 @@ public enum ToonMaterialFactory {
         return material
     }
 
+    // MARK: - Harder cel variant (Phase 3)
+
+    /// A *harder* cel look built on the same tuned-PBR technique as
+    /// `makeLayerMaterial`, but pushed closer to "flat paint" for
+    /// surfaces that want to read as clearly-cartoon rather than
+    /// realistic-with-toon-tint. Used by the PLATEAU building and
+    /// terrain loaders in Phase 3.
+    ///
+    /// Differences from `makeLayerMaterial`:
+    ///   * Emissive floor is raised (factor 0.6 vs. 0.35) so direct
+    ///     lighting has less effect on the perceived tone — shadows
+    ///     no longer look dark.
+    ///   * `specularIntensity` is forced to zero via metallic=0 +
+    ///     `clearcoat` set explicitly — no stray highlight.
+    ///   * Accepts a uniform `baseColor` without per-call strength
+    ///     since the whole point is a consistent "flat" look. Geology
+    ///     layers keep the softer `makeLayerMaterial` so the outcrop
+    ///     reads different from the buildings around it.
+    ///
+    /// ### Relationship to ADR-0004 scheme A
+    ///
+    /// Scheme A calls for a true NdotL step-ramp via
+    /// `ShaderGraphMaterial` loaded from a Reality Composer Pro
+    /// `.usda`. That is the correct endgame. This method ships the
+    /// closest we can get **without** hand-authoring MaterialX (which
+    /// ADR-0004 flagged as "unverifiable from a headless agent"). It
+    /// is explicitly *not* a true step ramp.
+    ///
+    /// - Important: `@MainActor` for the same `PhysicallyBasedMaterial`
+    ///   reasons as `makeLayerMaterial`.
+    @MainActor
+    public static func makeHardCelMaterial(
+        baseColor: SIMD3<Float>
+    ) -> RealityKit.Material {
+        var material = PhysicallyBasedMaterial()
+
+        // Tint: the surface identity. Same clamp as the soft variant.
+        let tint = clampedToonPlatformColor(from: baseColor)
+        material.baseColor = .init(tint: tint, texture: nil)
+
+        // Fully matte response, no metal. Same as the soft variant —
+        // the "harder" feel comes from the emissive floor below.
+        material.roughness = .init(floatLiteral: 1.0)
+        material.metallic = .init(floatLiteral: 0.0)
+
+        // Emissive floor at 60 % of base colour (vs. 35 % in the soft
+        // variant). This shallows the shading gradient so the surface
+        // reads as nearly self-lit — the closest PBR can get to the
+        // "lit band" in a cel-shaded ramp without custom shaders.
+        let emissive = emissiveTintHardCel(base: baseColor)
+        material.emissiveColor = .init(color: emissive, texture: nil)
+        material.emissiveIntensity = 1.0
+
+        // Remove any residual sheen: PBR's default clearcoat can leave
+        // a subtle highlight band that breaks the flat look.
+        material.clearcoat = .init(floatLiteral: 0.0)
+        material.clearcoatRoughness = .init(floatLiteral: 1.0)
+
+        return material
+    }
+
+    /// Hard-cel emissive tint calculation. Separate from
+    /// `emissiveTint` so the two variants can tune independently
+    /// without parameter sprawl.
+    internal static func emissiveTintHardCel(
+        base: SIMD3<Float>
+    ) -> ToonPlatformColor {
+        // 60 % of base colour, clamped. Empirically tuned against the
+        // spawn-tile preview on iPad — any higher and the emissive
+        // starts washing out the base identity.
+        let factor: Float = 0.6
+        let rgb = SIMD3<Float>(
+            max(0, min(1, base.x * factor)),
+            max(0, min(1, base.y * factor)),
+            max(0, min(1, base.z * factor))
+        )
+        return platformColor(from: rgb)
+    }
+
     // MARK: - Outline entity
 
     /// Build a back-face-hull outline entity for an existing
