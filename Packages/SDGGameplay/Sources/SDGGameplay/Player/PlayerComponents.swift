@@ -20,12 +20,28 @@ import RealityKit
 
 /// Identity tag for the player-controlled entity.
 ///
-/// Carries no state: its sole job is to distinguish the player from
-/// NPCs, inventory props, and geology entities in an `EntityQuery`.
-/// Keeping it zero-sized means adding or removing "player-ness" is
-/// effectively free at runtime.
+/// Primary job is to distinguish the player from NPCs, inventory
+/// props, and geology entities in an `EntityQuery`.
+///
+/// Phase 8.1 added the `isStaggered` flag so the earthquake system
+/// can tell `PlayerControlSystem` to dampen input without routing an
+/// extra event through the bus every frame. Putting it on the
+/// identity tag (rather than on `PlayerInputComponent`) keeps the
+/// input component a pure "current frame's desired motion" value —
+/// stagger state lives longer than a single frame's input snapshot.
 public struct PlayerComponent: Component, Sendable {
-    public init() {}
+
+    /// `true` while an earthquake is shaking. When set,
+    /// `PlayerControlSystem.applyInput` multiplies `moveAxis` by
+    /// `Self.staggeredMoveScale` (0.3) so movement feels sluggish —
+    /// the player can still walk, but the ground stealing 70 % of
+    /// their forward momentum reads as loss of balance. Cleared when
+    /// the earthquake state ends.
+    public var isStaggered: Bool
+
+    public init(isStaggered: Bool = false) {
+        self.isStaggered = isStaggered
+    }
 }
 
 /// This frame's motion request for the player entity.
