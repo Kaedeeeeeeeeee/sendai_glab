@@ -343,15 +343,32 @@ public struct RootView: View {
                 content.add(fallbackGround)
             }
 
-            // 2c. PLATEAU corridor (5 pre-converted USDZ tiles). When
-            //     the manifest is present, each tile sits at its real-
-            //     world envelope position; otherwise the Phase 3
-            //     bottom-snap layout is used. Either way a missing
-            //     tile aborts corridor load, which we log and proceed
-            //     from so the app still launches.
+            // 2c. PLATEAU corridor (5 pre-converted USDZ tiles).
+            //     Placement rules (Phase 5):
+            //     - manifest + terrain  →  each tile's mesh bottom is
+            //       snapped to the DEM sampled at the tile's own XZ
+            //       (per-tile adaptive; no global constant)
+            //     - manifest only        →  envelope position +
+            //       `envelopeTileGroundLift` constant fallback
+            //     - no manifest          →  legacy `tile.localCenter`
+            //       + bottom-snap
+            //     A missing tile aborts corridor load, which we log and
+            //     proceed from so the app still launches.
+            let terrainSampler: PlateauEnvironmentLoader.TerrainHeightSampler?
+            if let terrain = loadedTerrain {
+                terrainSampler = { xz in
+                    TerrainLoader.sampleTerrainY(
+                        in: terrain,
+                        atWorldXZ: xz
+                    )
+                }
+            } else {
+                terrainSampler = nil
+            }
             do {
                 let corridor = try await environmentLoader.loadDefaultCorridor(
-                    manifest: loadedManifest
+                    manifest: loadedManifest,
+                    terrainSampler: terrainSampler
                 )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor

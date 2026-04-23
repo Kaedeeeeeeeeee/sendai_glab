@@ -324,4 +324,88 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Phase 5 adaptive ground snap
+
+    /// Build a minimal entity with a 20 m cube mesh at a given world
+    /// position. Its visualBounds.min.y after placement is
+    /// `position.y - 10`, which we use to verify the adaptive snap
+    /// math lands the mesh bottom exactly where we expect.
+    @MainActor
+    private func makeCubeEntity(at worldY: Float) -> Entity {
+        let entity = ModelEntity(
+            mesh: .generateBox(size: 20),
+            materials: [SimpleMaterial()]
+        )
+        entity.position = SIMD3<Float>(0, worldY, 0)
+        return entity
+    }
+
+    /// Adaptive snap shifts the tile so its bounds.min.y sits exactly
+    /// `basementSkip` above the sampled DEM Y. This is the Phase 5
+    /// replacement for the Phase 4 `envelopeTileGroundLift` global
+    /// constant — per-tile, data-driven.
+    func testAdaptiveGroundSnapLandsMeshBottomOnDemPlusSkip() {
+        // A 20 m cube at y=100 → world bounds.min.y = 90, max.y = 110
+        let tile = makeCubeEntity(at: 100)
+        // Sampler returns Y = 50 at any XZ.
+        let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { _ in 50 }
+        PlateauEnvironmentLoader.adaptiveGroundSnap(
+            tile: tile,
+            terrainSampler: sampler,
+            basementSkip: 2.0
+        )
+        // After snap: mesh bottom at demY + skip = 50 + 2 = 52.
+        // Cube is 20 m tall centred on position.y, so position.y = 52 + 10 = 62.
+        XCTAssertEqual(tile.position.y, 62.0, accuracy: 1e-3)
+        let bounds = tile.visualBounds(relativeTo: nil)
+        XCTAssertEqual(bounds.min.y, 52.0, accuracy: 1e-3)
+    }
+
+    /// When the sampler returns nil (query outside terrain footprint),
+    /// the tile's position must stay untouched — leaving a stale snap
+    /// from an earlier frame would slingshot the tile.
+    func testAdaptiveGroundSnapNoOpOnNilSample() {
+        let tile = makeCubeEntity(at: 100)
+        let startY = tile.position.y
+        let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { _ in nil }
+        PlateauEnvironmentLoader.adaptiveGroundSnap(
+            tile: tile,
+            terrainSampler: sampler,
+            basementSkip: 2.0
+        )
+        XCTAssertEqual(tile.position.y, startY)
+    }
+
+    /// Repeating the snap with the same sampler must produce the
+    /// exact same position: the algorithm is idempotent because it
+    /// works from absolute world bounds, not relative deltas.
+    /// Matters for any future scene hot-reload path.
+    func testAdaptiveGroundSnapIsIdempotent() {
+        let tile = makeCubeEntity(at: 100)
+        let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { _ in 50 }
+        PlateauEnvironmentLoader.adaptiveGroundSnap(
+            tile: tile,
+            terrainSampler: sampler,
+            basementSkip: 2.0
+        )
+        let y1 = tile.position.y
+        PlateauEnvironmentLoader.adaptiveGroundSnap(
+            tile: tile,
+            terrainSampler: sampler,
+            basementSkip: 2.0
+        )
+        XCTAssertEqual(tile.position.y, y1, accuracy: 1e-3)
+    }
+
+    /// Pin the basement-skip constant so device tuning can't silently
+    /// drift. If a playtest wants a different value it shows up in
+    /// the diff.
+    func testAdaptiveGroundSnapSkipDefault() {
+        XCTAssertEqual(
+            PlateauEnvironmentLoader.adaptiveGroundSnapSkip,
+            2.0,
+            accuracy: 1e-6
+        )
+    }
 }

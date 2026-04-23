@@ -156,8 +156,27 @@ public final class PlateauEnvironmentLoader {
     /// - Throws: First tile failure aborts the corridor load — one
     ///   missing tile means the corridor layout is incomplete, and
     ///   shipping a partial corridor hides the regression.
+    /// Closure that returns the world-space terrain Y at a given
+    /// world XZ, or `nil` if the query is outside the terrain
+    /// footprint. Supplied by `RootView` by wrapping
+    /// `TerrainLoader.sampleTerrainY`. Injected (rather than the
+    /// loader reaching for a `TerrainLoader` directly) so tests can
+    /// substitute a deterministic fake and the layering stays clean —
+    /// `PlateauEnvironmentLoader` doesn't need to know the DEM exists
+    /// as an entity, only that someone can look up Y at an XZ.
+    public typealias TerrainHeightSampler = @MainActor (SIMD2<Float>) -> Float?
+
+    /// How far above the sampled DEM Y each tile's mesh-bottom is
+    /// parked in the Phase 5 adaptive-snap path. 2 m skips LOD2
+    /// basement / ground-surface geometry that would otherwise drag
+    /// the whole tile down, while staying small enough that most
+    /// buildings still visually sit on the terrain. Exposed
+    /// `internal` so a test pin can catch silent changes.
+    internal static let adaptiveGroundSnapSkip: Float = 2.0
+
     public func loadDefaultCorridor(
-        manifest: EnvelopeManifest? = nil
+        manifest: EnvelopeManifest? = nil,
+        terrainSampler: TerrainHeightSampler? = nil
     ) async throws -> Entity {
         let root = Entity()
         root.name = "PlateauCorridor"
@@ -165,19 +184,63 @@ public final class PlateauEnvironmentLoader {
         for tile in PlateauTile.allCases {
             let placement = Self.tilePlacement(tile: tile, manifest: manifest)
             let tileRoot = try await loadTile(tile, centerMode: placement.centerMode)
-            // Absolute assignment in both modes. The legacy branch of
-            // `tilePlacement` resolves to `tile.localCenter` and the
-            // loaded entity is already bottom-snapped at the origin of
-            // its own frame, so assigning (rather than +=) produces
-            // identical behaviour to the pre-Phase-4 `tileRoot.position
-            // += tile.localCenter` one-liner. The envelope branch
-            // *requires* absolute assignment — see ADR-0006 postmortem
-            // for why `+=` + centring collided in Phase 3.
+            // Absolute assignment in both modes. See `tilePlacement` docs
+            // and ADR-0006 for the `+=` → `=` history.
             tileRoot.position = placement.position
+
+            // Phase 5 adaptive ground snap. When the caller supplies
+            // a DEM sampler (and we're on the envelope/manifest path),
+            // override the per-tile Y so the tile's mesh bottom sits
+            // `adaptiveGroundSnapSkip` above the sampled DEM Y at the
+            // tile's own XZ. That replaces the Phase 4 global
+            // `envelopeTileGroundLift` constant — playtest confirmed
+            // a single constant can't serve every tile because nusamai's
+            // AABB centre is a tile-specific distance from the typical
+            // foundation depending on how much basement / ground-surface
+            // geometry the LOD2 data happens to include.
+            //
+            // Runs only when BOTH manifest and sampler are present.
+            // Without a manifest, tiles are on the legacy localCenter
+            // grid at Y = 0 and the DEM isn't in play. Without a sampler,
+            // the constant lift stays in place for the stripped-bundle
+            // / test-bundle fallback.
+            if let terrainSampler, manifest != nil {
+                Self.adaptiveGroundSnap(
+                    tile: tileRoot,
+                    terrainSampler: terrainSampler,
+                    basementSkip: Self.adaptiveGroundSnapSkip
+                )
+            }
             root.addChild(tileRoot)
         }
 
         return root
+    }
+
+    /// Shift `tile.position.y` so the entity's current world-space
+    /// visualBounds min Y lands `basementSkip` above `terrainSampler`
+    /// sampled at the tile's XZ. No-op if the sampler returns `nil`
+    /// or the tile has no bounded mesh yet — keeping the call safe
+    /// even before the full scene graph is ready.
+    ///
+    /// Exposed `internal` for a dedicated unit test; RootView is
+    /// expected to call it indirectly through `loadDefaultCorridor`.
+    @MainActor
+    internal static func adaptiveGroundSnap(
+        tile: Entity,
+        terrainSampler: TerrainHeightSampler,
+        basementSkip: Float
+    ) {
+        let xz = SIMD2<Float>(tile.position.x, tile.position.z)
+        guard let demY = terrainSampler(xz) else { return }
+        let bounds = tile.visualBounds(relativeTo: nil)
+        guard !bounds.isEmpty else { return }
+        let currentBottomY = bounds.min.y
+        // Target: bounds.min.y == demY + basementSkip in world space.
+        // visualBounds is position + local mesh min, so shifting
+        // position by the delta lands the mesh bottom exactly there.
+        let delta = (demY + basementSkip) - currentBottomY
+        tile.position.y += delta
     }
 
     /// Load a single tile and replace its materials with Toon variants.
