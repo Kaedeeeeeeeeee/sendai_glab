@@ -411,4 +411,130 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
             accuracy: 1e-6
         )
     }
+
+    // MARK: - Phase 6 per-building walk
+
+    /// Build a tile root containing N mesh-bearing children, each a
+    /// 10 m cube placed at a distinct XZ. Returns the root and the
+    /// children in the order they were added so tests can assert on
+    /// individual targets.
+    @MainActor
+    private func makeTileWithBuildings(
+        at positions: [SIMD3<Float>]
+    ) -> (Entity, [Entity]) {
+        let root = Entity()
+        var children: [Entity] = []
+        for pos in positions {
+            let building = ModelEntity(
+                mesh: .generateBox(size: 10),
+                materials: [SimpleMaterial()]
+            )
+            building.position = pos
+            root.addChild(building)
+            children.append(building)
+        }
+        return (root, children)
+    }
+
+    /// `snapDescendantBuildings` lands each building's bounds.center.y
+    /// at the DEM Y sampled at that building's own XZ — independent
+    /// of every other building. This is the Phase 6 fix for the
+    /// Phase 5 "single rigid tile over varying terrain" limit.
+    func testSnapDescendantBuildingsSnapsEachChildIndependently() {
+        let positions: [SIMD3<Float>] = [
+            SIMD3(0,   50,  0),   // building A at (0,0)
+            SIMD3(100, 50,  0),   // building B at (100,0)
+            SIMD3(0,   50, 200),  // building C at (0,200)
+        ]
+        let (tile, buildings) = makeTileWithBuildings(at: positions)
+
+        // Sampler that returns a different DEM Y per XZ so we can
+        // check each child lands on its own target.
+        let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { xz in
+            if xz.x == 0 && xz.y == 0   { return  10 }  // A → 10
+            if xz.x == 100 && xz.y == 0 { return  25 }  // B → 25
+            if xz.x == 0 && xz.y == 200 { return -15 }  // C → -15
+            return nil
+        }
+
+        let snapped = PlateauEnvironmentLoader.snapDescendantBuildings(
+            tile: tile,
+            terrainSampler: sampler,
+            basementSkip: 0
+        )
+        XCTAssertEqual(snapped, 3, "expected 3 buildings snapped")
+
+        // Each cube is 10 m; centre y after snap = demY. Check all.
+        let expectations: [(Entity, Float)] = [
+            (buildings[0],  10),
+            (buildings[1],  25),
+            (buildings[2], -15),
+        ]
+        for (building, expectedY) in expectations {
+            let centreY = building.visualBounds(relativeTo: nil).center.y
+            XCTAssertEqual(
+                centreY, expectedY, accuracy: 1e-3,
+                "building at \(building.position.x), \(building.position.z) " +
+                "should have centre y = \(expectedY), got \(centreY)"
+            )
+        }
+    }
+
+    /// If the tile has no mesh-bearing descendants (legacy single-
+    /// mesh USDZ pre-split), the helper falls back to snapping the
+    /// tile itself as a rigid body — Phase 5 behaviour.
+    func testSnapDescendantBuildingsFallsBackOnLegacySingleMesh() {
+        // A ModelEntity directly (no child hierarchy): the helper's
+        // "collect descendants with ModelComponent" collects the tile
+        // itself as a building. Not a legacy tile. To model a legacy
+        // (single-mesh root with no mesh-bearing CHILDREN) we need a
+        // root that HAS a ModelComponent but no children.
+        let legacyRoot = ModelEntity(
+            mesh: .generateBox(size: 20),
+            materials: [SimpleMaterial()]
+        )
+        legacyRoot.position = SIMD3<Float>(0, 100, 0)
+
+        let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { _ in 50 }
+        let snapped = PlateauEnvironmentLoader.snapDescendantBuildings(
+            tile: legacyRoot,
+            terrainSampler: sampler,
+            basementSkip: 0
+        )
+        // Legacy path: 1 building "found" (the root itself), not fallback.
+        // The root counts as a descendant — the walk's first node check
+        // lands on it.
+        XCTAssertEqual(snapped, 1)
+
+        // After snap, bounds.center.y == 50.
+        let centreY = legacyRoot.visualBounds(relativeTo: nil).center.y
+        XCTAssertEqual(centreY, 50.0, accuracy: 1e-3)
+    }
+
+    /// True fallback path: a root `Entity` with neither a
+    /// `ModelComponent` nor any mesh-bearing descendants. The walk
+    /// finds no buildings, so the helper snaps the tile entity
+    /// itself via the rigid-body `adaptiveGroundSnap`. This returns
+    /// 0 snapped buildings by contract.
+    func testSnapDescendantBuildingsFallsBackToTileLevelWhenEmpty() {
+        let emptyRoot = Entity()  // no ModelComponent, no children
+        emptyRoot.position = SIMD3<Float>(0, 0, 0)
+        var sampled = false
+        let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { _ in
+            sampled = true
+            return 50
+        }
+        let snapped = PlateauEnvironmentLoader.snapDescendantBuildings(
+            tile: emptyRoot,
+            terrainSampler: sampler,
+            basementSkip: 0
+        )
+        XCTAssertEqual(snapped, 0, "empty tile reports 0 snapped buildings")
+        // The fallback calls adaptiveGroundSnap on the empty tile,
+        // which returns early on empty bounds without sampling.
+        XCTAssertFalse(
+            sampled,
+            "empty bounds should short-circuit before sampling DEM"
+        )
+    }
 }

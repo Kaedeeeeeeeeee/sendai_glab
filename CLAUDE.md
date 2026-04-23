@@ -205,7 +205,20 @@ ADR-0006 に postmortem と Phase 4 計画を記録。本 PR #11 では:
 3. ランタイム側の tile-level rigid shift では上記 2 つを補正できない
 4. 「諦める判断」はコストを抑える上で必要 — 4 次試行した後明らかだった
 
-### Phase 4 PLATEAU 真対齐 — 完了(2026-04-23、branch `feat/phase-4-citygml-envelope-alignment`)
+### Phase 6 PLATEAU per-building DEM snap — 完了(2026-04-23、同 PR #12 branch)
+
+Phase 5 per-tile rigid-body snap で tile 内部 150m 高差に対応できず、真機で一部建筑飞天/埋地。
+→ Phase 6: 各 tile の mesh を Blender で**建物ごとに分割**、RealityKit 加载時各建筑独立 snap。
+
+- [x] `Tools/plateau-pipeline/split_bldg_by_connectivity.py` — weld 1mm → LOOSE separate → multi-object USDZ
+- [x] `Tools/plateau-pipeline/split_all_bldgs.sh` batch driver
+- [x] 5 tile 再生成:275 / 277 / 1302 / 914 / 1675 = **4443 栋建筑**、合計 6.5 MB
+- [x] `PlateauEnvironmentLoader.snapDescendantBuildings` — DFS walk、各 ModelComponent 実体を独立 snap
+- [x] 3 新 tests、ADR-0008 記録
+
+**合計 332 tests / 0 failures**(SDGGameplay 332)
+
+### (旧) Phase 4 PLATEAU 真対齐 — 完了(2026-04-23、branch `feat/phase-4-citygml-envelope-alignment`)
 
 **ADR-0006 で延期していた DEM 整合を root-cause で解決**。
 

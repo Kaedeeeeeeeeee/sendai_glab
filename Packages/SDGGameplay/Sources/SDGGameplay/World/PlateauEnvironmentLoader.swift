@@ -211,7 +211,13 @@ public final class PlateauEnvironmentLoader {
             // the constant lift stays in place for the stripped-bundle
             // / test-bundle fallback.
             if let terrainSampler, manifest != nil {
-                Self.adaptiveGroundSnap(
+                // Phase 6: walk tile's descendants and snap each mesh
+                // entity (one per building after the
+                // `split_bldg_by_connectivity.py` offline pass). Falls
+                // back to tile-level snap when the USDZ is a legacy
+                // single-mesh (no per-building children) — keeps the
+                // Phase 5 behaviour as a fallback for stripped bundles.
+                Self.snapDescendantBuildings(
                     tile: tileRoot,
                     terrainSampler: terrainSampler,
                     basementSkip: Self.adaptiveGroundSnapSkip
@@ -271,16 +277,70 @@ public final class PlateauEnvironmentLoader {
         let currentCentreY = bounds.center.y
         let delta = (demY + basementSkip) - currentCentreY
         tile.position.y += delta
+        // No diagnostic print: Phase 6 calls this once per building
+        // (~1000 times per tile), which would flood Console.app.
+    }
 
-        // Diagnostic breadcrumb. Keep through Phase 5 QA; delete for
-        // ship. Prints are a few per corridor-load — not hot-path.
-        print(
-            "[SDG-Lab][p5] snap tile name=\(tile.name) " +
-            "pos=(\(tile.position.x), \(tile.position.z)) " +
-            "centerXZ=(\(bounds.center.x), \(bounds.center.z)) " +
-            "centerY=\(currentCentreY) → demY=\(demY) delta=\(delta) " +
-            "newPosY=\(tile.position.y)"
-        )
+    /// Find every descendant with a `ModelComponent` (each represents
+    /// one PLATEAU building after the Phase 6 offline split pipeline)
+    /// and apply `adaptiveGroundSnap` to it independently. When the
+    /// tile has no mesh-bearing descendants — i.e. it's a legacy
+    /// single-mesh USDZ from before the split — fall back to snapping
+    /// the tile entity itself.
+    ///
+    /// Returns the number of descendants snapped (0 for the
+    /// fallback). Exposed `internal` for tests.
+    ///
+    /// ### Why stop descent on first ModelComponent
+    ///
+    /// For a hierarchy root → building → mesh_part, we want to snap
+    /// the *building* (so all its parts move together), not each
+    /// mesh part. Stopping descent on the first `ModelComponent`-
+    /// bearing node along each branch is the right policy as long
+    /// as buildings are at most one `ModelComponent` layer deep —
+    /// which is how Blender's USD export lays out the split tiles.
+    @MainActor
+    @discardableResult
+    internal static func snapDescendantBuildings(
+        tile: Entity,
+        terrainSampler: TerrainHeightSampler,
+        basementSkip: Float
+    ) -> Int {
+        // Collect the top-most mesh-bearing descendants. Iterative
+        // DFS, mirroring `applyToonMaterial`'s walk pattern.
+        var buildings: [Entity] = []
+        var stack: [Entity] = [tile]
+        while let current = stack.popLast() {
+            if current.components[ModelComponent.self] != nil {
+                buildings.append(current)
+                // Don't descend into this subtree — snapping the
+                // parent moves the children automatically.
+                continue
+            }
+            stack.append(contentsOf: current.children)
+        }
+
+        guard !buildings.isEmpty else {
+            // Legacy single-mesh USDZ (pre-split) — the tile root
+            // itself has no ModelComponent and no mesh-bearing
+            // descendants visible to us. Snap the tile as a rigid
+            // body, Phase-5 style.
+            adaptiveGroundSnap(
+                tile: tile,
+                terrainSampler: terrainSampler,
+                basementSkip: basementSkip
+            )
+            return 0
+        }
+
+        for building in buildings {
+            adaptiveGroundSnap(
+                tile: building,
+                terrainSampler: terrainSampler,
+                basementSkip: basementSkip
+            )
+        }
+        return buildings.count
     }
 
     /// Load a single tile and replace its materials with Toon variants.
