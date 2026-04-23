@@ -344,7 +344,8 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
     /// Adaptive snap shifts the tile so its bounds.min.y sits exactly
     /// `basementSkip` above the sampled DEM Y. This is the Phase 5
     /// replacement for the Phase 4 `envelopeTileGroundLift` global
-    /// constant — per-tile, data-driven.
+    /// constant — per-tile, data-driven. Uses a non-default skip to
+    /// prove the parameter is respected.
     func testAdaptiveGroundSnapLandsMeshBottomOnDemPlusSkip() {
         // A 20 m cube at y=100 → world bounds.min.y = 90, max.y = 110
         let tile = makeCubeEntity(at: 100)
@@ -400,11 +401,12 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
 
     /// Pin the basement-skip constant so device tuning can't silently
     /// drift. If a playtest wants a different value it shows up in
-    /// the diff.
+    /// the diff. Phase 5 iter 2 walked the default 2 → 0 after "all
+    /// buildings floating" feedback.
     func testAdaptiveGroundSnapSkipDefault() {
         XCTAssertEqual(
             PlateauEnvironmentLoader.adaptiveGroundSnapSkip,
-            2.0,
+            0.0,
             accuracy: 1e-6
         )
     }

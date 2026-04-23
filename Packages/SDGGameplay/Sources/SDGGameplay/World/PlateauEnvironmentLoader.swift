@@ -167,12 +167,18 @@ public final class PlateauEnvironmentLoader {
     public typealias TerrainHeightSampler = @MainActor (SIMD2<Float>) -> Float?
 
     /// How far above the sampled DEM Y each tile's mesh-bottom is
-    /// parked in the Phase 5 adaptive-snap path. 2 m skips LOD2
-    /// basement / ground-surface geometry that would otherwise drag
-    /// the whole tile down, while staying small enough that most
-    /// buildings still visually sit on the terrain. Exposed
-    /// `internal` so a test pin can catch silent changes.
-    internal static let adaptiveGroundSnapSkip: Float = 2.0
+    /// parked in the Phase 5 adaptive-snap path.
+    ///
+    /// History:
+    ///   - iter 1: 2.0 (small z-fighting buffer + absorb DEM sampling
+    ///     error; too much — device showed every building floating)
+    ///   - iter 2: 2.0 → 0.0 (flush contact: buildings now visibly
+    ///     sit on the DEM. Accept the risk of occasional z-fighting
+    ///     where mesh and terrain share the same Y; re-introduce a
+    ///     sub-metre margin only if playtest shows flicker)
+    ///
+    /// Exposed `internal` so a test pin can catch silent changes.
+    internal static let adaptiveGroundSnapSkip: Float = 0.0
 
     public func loadDefaultCorridor(
         manifest: EnvelopeManifest? = nil,
