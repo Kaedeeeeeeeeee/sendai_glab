@@ -121,53 +121,38 @@ public final class PlateauEnvironmentLoader {
         let root = Entity()
         root.name = "PlateauCorridor"
 
+        // NOTE — Phase 3 alignment compromise:
+        //
+        // Three attempts at per-tile DEM alignment (Y=0 flat, tile-
+        // level terrain lift, two flavours of lift maths) all looked
+        // worse on device than a single flat plane because nusamai
+        // strips the real-world Y offset from each GLB. Without a
+        // shared reference point, the 150 m vertical span of each
+        // tile (Aobayama genuinely has 80 m of elevation variance
+        // across the 1 km cell, plus buildings themselves) causes
+        // either "buildings floating" or "buildings buried" depending
+        // on which compromise we pick.
+        //
+        // We therefore ignore `terrainSampler` for now and put every
+        // tile at Y = 0, the pre-Phase-3 behaviour. The terrain still
+        // renders as a visible backdrop; perfect alignment is Phase 4
+        // work (either CityGML-envelope-based real-origin recovery,
+        // or offline per-building DEM re-projection).
+        //
+        // The parameter stays on the signature for forwards
+        // compatibility — future alignment work can opt in without a
+        // signature churn.
+        _ = terrainSampler
+
         for tile in PlateauTile.allCases {
             let tileRoot = try await loadTile(tile)
 
-            // `tileRoot` is already post-centering: `loadTile` called
-            // `centerHorizontallyAndGroundY` which sets position.x to
-            // `-boundsCentreX` (so the AABB is horizontally centred on
-            // origin) and position.y to `-boundsMinY` (so the lowest
-            // vertex sits on Y=0 in parent frame). We must *add* to
-            // that transform, not overwrite it — otherwise the
-            // horizontal centring is lost and the tile's real mesh
-            // origin (kilometres off centre per nusamai's EPSG:6677
-            // output) shows up in the scene.
-            let priorX = tileRoot.position.x
-            let priorY = tileRoot.position.y
-
-            // Sample the DEM at the tile's centre in world space.
-            // The grid offset `tile.localCenter` already places the
-            // tile horizontally; we add the terrain's Y at that same
-            // XZ on top of the bottom-snap offset so the tile's
-            // lowest foundation rests on the ground under it.
-            var terrainLift: Float = 0
-            if let sampler = terrainSampler {
-                let xz = SIMD2<Float>(
-                    tile.localCenter.x,
-                    tile.localCenter.z
-                )
-                if let y = sampler(xz) {
-                    terrainLift = y
-                }
-            }
-
-            // Additive shift preserves centerHorizontallyAndGroundY's
-            // work: X/Z get the grid stacked on top of the centring,
-            // Y gets the terrain lift stacked on top of the bottom-
-            // snap. The single-line `+=` we used before only touched
-            // X/Z because `tile.localCenter.y` is always 0.
-            tileRoot.position += SIMD3<Float>(
-                tile.localCenter.x,
-                terrainLift,
-                tile.localCenter.z
-            )
-            print(
-                "[SDG-Lab] tile \(tile.rawValue) lift: " +
-                "priorY=\(priorY) terrainY=\(terrainLift) " +
-                "finalY=\(tileRoot.position.y) " +
-                "(priorX=\(priorX) finalX=\(tileRoot.position.x))"
-            )
+            // Preserve horizontal centring (`+=` does not overwrite
+            // the `-boundsCentreX` / `-boundsCentreZ` that
+            // `centerHorizontallyAndGroundY` installed). Y stays at
+            // the bottom-snap offset; tiles share Y = 0 as their
+            // "lowest foundation" plane.
+            tileRoot.position += tile.localCenter
             root.addChild(tileRoot)
         }
 

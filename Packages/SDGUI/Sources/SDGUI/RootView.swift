@@ -301,62 +301,41 @@ public struct RootView: View {
             //     tiles so it renders underneath them in the implicit
             //     draw order. Failure (missing USDZ) is soft: we log
             //     and fall back to the flat ground plane from step 1.
-            //     Phase 3 note: alignment with buildings is approximate —
-            //     nusamai strips real-world origins, so we bottom-snap
-            //     both and accept some visual drift. See
-            //     `TerrainLoader` header for details.
             //
-            //     We also sample the terrain's Y at the spawn XZ so the
-            //     player (added in step 4) can start on the surface
-            //     rather than buried under the Aobayama hilltop. Sampled
-            //     value is passed to step 4 via the local `spawnY` and
-            //     persisted in sceneRefs for future relocation needs.
-            var spawnY: Float = 0
-            var loadedTerrain: Entity?
+            // Phase 3 alignment postmortem: nusamai strips each GLB's
+            // real-world Y origin, so buildings and DEM share no
+            // reference point. Three tile-lift strategies we tried
+            // all compromised (buildings either float or bury). The
+            // best we can do today is shift the *terrain* so its
+            // surface at the spawn XZ sits on Y = 0 — the same plane
+            // the buildings bottom-snap to. This aligns terrain +
+            // buildings in the spawn area; far from spawn, the real
+            // PLATEAU elevation variance still shows. Proper fix:
+            // Phase 4 CityGML-envelope origin recovery.
+            var spawnY: Float = 1.0
             do {
                 let terrain = try await terrainLoader.load()
                 content.add(terrain)
-                loadedTerrain = terrain
-                if let y = TerrainLoader.sampleTerrainY(
+
+                if let terrainSpawnY = TerrainLoader.sampleTerrainY(
                     in: terrain,
                     atWorldXZ: SIMD2<Float>(0, 0)
                 ) {
-                    // Add a small margin so the spawn isn't exactly on
-                    // the surface (camera would clip). 0.1 m is plenty
-                    // given the Toon-shaded terrain has no sub-metre
-                    // detail after decimation.
-                    spawnY = y + 0.1
-                    print("[SDG-Lab] terrain Y at spawn = \(y)")
+                    terrain.position.y -= terrainSpawnY
+                    print(
+                        "[SDG-Lab] terrain shifted by -\(terrainSpawnY) " +
+                        "so surface at spawn = Y=0"
+                    )
                 }
             } catch {
                 print("[SDG-Lab] TerrainLoader failed: \(error)")
             }
 
-            // 2b. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
-            //     materials are applied inside the loader. If any tile
-            //     is missing, the loader throws and we proceed without
-            //     cityscape so the app still launches.
-            //
-            //     If terrain loaded, pass a sampler so each tile is
-            //     raised to the ground under it instead of sitting on
-            //     the universal Y = 0 plane. Without this, all 5 tiles
-            //     bottom-snap to the same Y and the ones over actual
-            //     hilltops (e.g. Aobayama) end up underground while
-            //     the ones over valleys float in mid-air.
-            //     Tile-level only — inside a 1 km tile residual drift
-            //     still shows because the tile is rigid. Deferred.
-            let terrainSampler: PlateauEnvironmentLoader.TerrainHeightSampler?
-            if let terrain = loadedTerrain {
-                terrainSampler = { xz in
-                    TerrainLoader.sampleTerrainY(in: terrain, atWorldXZ: xz)
-                }
-            } else {
-                terrainSampler = nil
-            }
+            // 2b. PLATEAU corridor. All 5 tiles sit at the shared
+            //     Y = 0 bottom-snap plane. No per-tile DEM lift —
+            //     see the note inside `loadDefaultCorridor` for why.
             do {
-                let corridor = try await environmentLoader.loadDefaultCorridor(
-                    terrainSampler: terrainSampler
-                )
+                let corridor = try await environmentLoader.loadDefaultCorridor()
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
             } catch {
