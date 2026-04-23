@@ -194,22 +194,16 @@ public final class PlateauEnvironmentLoader {
             // and ADR-0006 for the `+=` → `=` history.
             tileRoot.position = placement.position
 
-            // Phase 5 adaptive ground snap. When the caller supplies
-            // a DEM sampler (and we're on the envelope/manifest path),
-            // override the per-tile Y so the tile's mesh bottom sits
-            // `adaptiveGroundSnapSkip` above the sampled DEM Y at the
-            // tile's own XZ. That replaces the Phase 4 global
-            // `envelopeTileGroundLift` constant — playtest confirmed
-            // a single constant can't serve every tile because nusamai's
-            // AABB centre is a tile-specific distance from the typical
-            // foundation depending on how much basement / ground-surface
-            // geometry the LOD2 data happens to include.
-            //
-            // Runs only when BOTH manifest and sampler are present.
-            // Without a manifest, tiles are on the legacy localCenter
-            // grid at Y = 0 and the DEM isn't in play. Without a sampler,
-            // the constant lift stays in place for the stripped-bundle
-            // / test-bundle fallback.
+            // Legacy Phase 5 adaptive ground snap. Runs only when the
+            // caller supplies both a manifest and a runtime DEM sampler.
+            // Phase 6.1 mainline corridor loads omit the sampler because
+            // the Blender pipeline now bakes per-building snap into the
+            // USDZ (see `split_bldg_by_connectivity.py`), making runtime
+            // snap redundant — and actively harmful, because re-snapping
+            // a pre-aligned tile as a rigid body would undo the per-
+            // building work. The sampler path remains live for the
+            // test suite and for legacy single-mesh USDZs that have not
+            // been re-baked.
             if let terrainSampler, manifest != nil {
                 // Phase 6: walk tile's descendants and snap each mesh
                 // entity (one per building after the
@@ -438,17 +432,17 @@ public final class PlateauEnvironmentLoader {
         guard let manifest else {
             return (tile.localCenter, .bottomSnap)
         }
-        if var envelopePosition = manifest.realityKitPosition(for: tile.rawValue) {
-            // Phase 4 iteration 2: on-device inspection shows buildings
-            // sinking ~5 m into the DEM surface. The envelope's Z centre
-            // doesn't quite line up with the mesh's geometric Y centre
-            // because CityGML's LOD2 bldg data includes basement walls
-            // and ground surfaces below the apparent foundation, dragging
-            // the mesh AABB lower than the envelope midpoint. A constant
-            // vertical nudge is the pragmatic fix while we stay within
-            // DEM-grid-resolution anyway (~30 m); Phase 5 can refine with
-            // per-building ground sampling if needed.
-            envelopePosition.y += Self.envelopeTileGroundLift
+        if let envelopePosition = manifest.realityKitPosition(for: tile.rawValue) {
+            // Phase 6.1: tiles are pre-snapped offline by
+            // `split_bldg_by_connectivity.py` (each building's foundation
+            // already sits on the DEM surface inside the baked USDZ).
+            // Runtime placement is therefore pure envelope positioning —
+            // no additional lift. The old `envelopeTileGroundLift`
+            // constant (5→10→15→25→20→18 across Phase 4 iterations) was
+            // a runtime compensation for the missing offline snap; with
+            // Phase 6.1 it turned into pure 18 m float and caused the
+            // "still flying" regression after the offline pipeline
+            // landed. See ADR-0008 § Phase 6.1 for the offline contract.
             return (envelopePosition, .none)
         }
         // Partial manifest — fall back per-tile so the rest of the
@@ -461,31 +455,6 @@ public final class PlateauEnvironmentLoader {
         )
         return (tile.localCenter, .bottomSnap)
     }
-
-    /// Constant upward nudge applied to every tile positioned via the
-    /// envelope manifest. See `tilePlacement` for the rationale.
-    /// Exposed `internal` so a future test can pin the value without
-    /// reopening the type — tuning this constant is a frequent kind
-    /// of playtest iteration.
-    ///
-    /// History:
-    ///   - Phase 4 iter 2: 5.0 (first guess after "buildings sunk ~5 m")
-    ///   - Phase 4 iter 4: 5.0 → 10.0 (still slightly sunk at 5 m)
-    ///   - Phase 4 iter 5: 10.0 → 15.0 (buildings at hilltops still clip
-    ///     terrain; extra 5 m defends against the worst LOD2 basement dip)
-    ///   - Phase 4 iter 7: 15.0 → 25.0 (large cluster of buildings still
-    ///     visibly sunk)
-    ///   - Phase 4 iter 8: 25.0 → 20.0 (25 flew buildings above terrain)
-    ///   - Phase 4 iter 9: 20.0 → 18.0 (20 still slightly high on most
-    ///     tiles; 18 trades the last 2 m back toward "sitting on" look)
-    ///
-    /// 18 m is well outside "rounding artefact" territory — this
-    /// really is a structural tile-by-tile mismatch. A single global
-    /// constant is the wrong shape; Phase 5 should do per-tile lift
-    /// (derived from the envelope / DEM sample at each tile's centre)
-    /// or per-building DEM re-projection in the Blender pipeline.
-    /// Tracked in ADR-0007's "Known limitations" section.
-    internal static let envelopeTileGroundLift: Float = 18.0
 
     // MARK: - Materials
 

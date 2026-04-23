@@ -225,24 +225,23 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
     func testCorridorWithManifestPositionsTilesByEnvelope() throws {
         let manifest = try makeManifest(jsonString: Self.fullCorridorFixtureJSON)
 
-        let lift = PlateauEnvironmentLoader.envelopeTileGroundLift
+        // Phase 6.1 contract: placement == manifest.realityKitPosition,
+        // no constant lift added on top. The old `envelopeTileGroundLift`
+        // was a runtime compensation for missing offline per-building
+        // snap; after the Blender pipeline started baking that snap into
+        // the USDZ, the lift became a pure 18 m float regression.
         for tile in PlateauTile.allCases {
             let manifestPos = try XCTUnwrap(
                 manifest.realityKitPosition(for: tile.rawValue),
                 "fixture missing tile \(tile.rawValue); test setup bug"
-            )
-            let expected = SIMD3<Float>(
-                manifestPos.x,
-                manifestPos.y + lift,
-                manifestPos.z
             )
             let placement = PlateauEnvironmentLoader.tilePlacement(
                 tile: tile,
                 manifest: manifest
             )
             XCTAssertEqual(
-                placement.position, expected,
-                "tile \(tile.rawValue) placement diverged from manifest + ground lift"
+                placement.position, manifestPos,
+                "tile \(tile.rawValue) placement must equal manifest position exactly (no runtime lift)"
             )
             XCTAssertEqual(
                 placement.centerMode, .none,
@@ -252,13 +251,14 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
 
         // Sanity-check one well-known offset end-to-end so a bug in
         // `realityKitPosition` doesn't silently make this test tautological.
-        // Kawauchi (57403618) is 1250 m east, same northing → (1250, lift, 0).
+        // Kawauchi (57403618) is 1250 m east, same northing → (1250, 0, 0)
+        // in the test fixture (elevation matches spawn exactly).
         let kawauchi = PlateauEnvironmentLoader.tilePlacement(
             tile: .kawauchiCampus,
             manifest: manifest
         )
         XCTAssertEqual(kawauchi.position.x, 1250.0, accuracy: 1e-3)
-        XCTAssertEqual(kawauchi.position.y, lift,  accuracy: 1e-3)
+        XCTAssertEqual(kawauchi.position.y,    0.0, accuracy: 1e-3)
         XCTAssertEqual(kawauchi.position.z,    0.0, accuracy: 1e-3)
     }
 
@@ -281,14 +281,9 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
                 let manifestPos = try XCTUnwrap(
                     manifest.realityKitPosition(for: tile.rawValue)
                 )
-                let expected = SIMD3<Float>(
-                    manifestPos.x,
-                    manifestPos.y + PlateauEnvironmentLoader.envelopeTileGroundLift,
-                    manifestPos.z
-                )
                 XCTAssertEqual(
-                    placement.position, expected,
-                    "covered tile \(tile.rawValue) must use manifest position + ground lift"
+                    placement.position, manifestPos,
+                    "covered tile \(tile.rawValue) must use manifest position exactly (no runtime lift after Phase 6.1)"
                 )
                 XCTAssertEqual(placement.centerMode, .none)
             } else {
