@@ -65,6 +65,11 @@ final class POCSceneRefs {
     /// before the conversion pipeline has produced them.
     var environmentRoot: Entity?
 
+    /// Phase 9 Part B: cached terrain entity so
+    /// `DrillingOrchestrator.terrainSampler` can DEM-raycast for the
+    /// surface Y at each drill location.
+    var loadedTerrain: Entity?
+
     init() {}
 }
 
@@ -177,6 +182,10 @@ public struct RootView: View {
     /// Phase 8: bridges `EarthquakeStarted` / `FloodStarted` to
     /// the platform `AudioService`. Started in `bootstrap()`.
     @State private var disasterAudioBridge: DisasterAudioBridge?
+
+    /// Phase 9 Part B: story-driven quest + disaster routing.
+    /// Replaces the Phase 3 ad-hoc dialogue→quest subscription.
+    @State private var storyProgressionBridge: StoryProgressionBridge?
 
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
@@ -400,6 +409,10 @@ public struct RootView: View {
                 let terrain = try await terrainLoader.load()
                 content.add(terrain)
                 loadedTerrain = terrain
+                // Phase 9 Part B: cache the terrain so the drilling
+                // orchestrator can sample DEM Y at each drill XZ
+                // (surface elevation varies across the corridor).
+                sceneRefs.loadedTerrain = terrain
             } catch {
                 print("[SDG-Lab][p4] TerrainLoader failed, using flat fallback plane: \(error)")
                 content.add(fallbackGround)
@@ -771,12 +784,36 @@ public struct RootView: View {
         await drillingStore.start()
         await inventoryStore.start()
 
+        // Phase 9 Part B: load the 5-tile regional stratigraphic
+        // column database. Missing-bundle path is a soft fallback
+        // to the legacy entity-tree drilling (test outcrop only).
+        let regionRegistry: GeologyRegionRegistry?
+        do {
+            regionRegistry = try GeologyRegionRegistry(
+                bundle: .main,
+                manifest: envelopeManifest
+            )
+            print("[SDG-Lab][p9-b] GeologyRegionRegistry loaded")
+        } catch {
+            print("[SDG-Lab][p9-b] GeologyRegionRegistry load failed: \(error)")
+            regionRegistry = nil
+        }
+
         // Orchestrator reads outcropRoot via closure so it sees the
-        // latest reference even if the scene is rebuilt later.
+        // latest reference even if the scene is rebuilt later. Phase
+        // 9 Part B also injects the region registry + terrain sampler
+        // so drilling anywhere in the corridor produces a real sample.
         let refs = sceneRefs
         let orch = DrillingOrchestrator(
             eventBus: bus,
-            outcropRootProvider: { refs.outcropRoot }
+            outcropRootProvider: { refs.outcropRoot },
+            regionRegistry: regionRegistry,
+            terrainSampler: { xz in
+                guard let terrain = refs.loadedTerrain else { return nil }
+                return TerrainLoader.sampleTerrainY(
+                    in: terrain, atWorldXZ: xz
+                )
+            }
         )
         await orch.start()
         orchestrator = orch
@@ -848,19 +885,29 @@ public struct RootView: View {
             await handleVehicleExited(event)
         }
 
-        // When the chapter intro dialogue finishes, kick off the
-        // first quest so the QuestTracker becomes visible. Phase 3
-        // will replace this with a proper QuestCoordinator that
-        // chains all 13 quests.
-        dialogueFinishedToken = await bus.subscribe(DialogueFinished.self) { event in
-            // Only the chapter-1 intro should trigger the auto-start;
-            // ignore any other dialogue (e.g. mid-game NPC banter).
-            guard event.sequenceId == "quest1.1" else { return }
-            let store = questStore
-            Task { @MainActor in
-                await store.intent(.start(questId: "q.lab.intro"))
+        // Phase 9 Part B: StoryProgressionBridge replaces the ad-hoc
+        // dialogue→quest subscription. It also wires quest completion
+        // to disaster triggers via the `StoryProgressionMap`. The
+        // bridge is @MainActor and takes a player-Y provider for the
+        // flood's startY — scene-graph access stays out of the Store.
+        let progressionBridge = StoryProgressionBridge(
+            eventBus: bus,
+            questStore: questStore,
+            disasterStore: disasterStore,
+            playerYProvider: {
+                // `refs` captured from the outer scope (local alias for
+                // `sceneRefs`). Strong reference is fine — POCSceneRefs
+                // is a tiny wrapper class.
+                refs.playerEntity?.position(relativeTo: nil).y ?? 0
             }
-        }
+        )
+        await progressionBridge.start()
+        storyProgressionBridge = progressionBridge
+
+        // Bootstrap kick-off: start the chapter-1 intro quest so the
+        // QuestTracker becomes visible. Idempotent; the bridge takes
+        // over after the first DialogueFinished lands.
+        await questStore.intent(.start(questId: "q.lab.intro"))
 
         // Developer-facing debug: log every move intent. Real HUD
         // subscribers land in Phase 2.
@@ -958,6 +1005,7 @@ public struct RootView: View {
         let orch = orchestrator
         let bridge = audioBridge
         let dBridge = disasterAudioBridge
+        let pBridge = storyProgressionBridge
         let qs = questStore
         Task {
             await ds.stop()
@@ -966,9 +1014,11 @@ public struct RootView: View {
             if let orch { await orch.stop() }
             if let bridge { await bridge.stop() }
             if let dBridge { await dBridge.stop() }
+            if let pBridge { await pBridge.stop() }
         }
         audioBridge = nil
         disasterAudioBridge = nil
+        storyProgressionBridge = nil
         // Clear the Phase 8 System binding so a subsequent view
         // creation re-binds to the fresh store rather than the
         // stale one from the previous scene.
