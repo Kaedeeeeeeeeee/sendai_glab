@@ -124,25 +124,50 @@ public final class PlateauEnvironmentLoader {
         for tile in PlateauTile.allCases {
             let tileRoot = try await loadTile(tile)
 
-            // Horizontal placement: the standard grid (row / column
-            // derived from the mesh id).
-            var position = tile.localCenter
+            // `tileRoot` is already post-centering: `loadTile` called
+            // `centerHorizontallyAndGroundY` which sets position.x to
+            // `-boundsCentreX` (so the AABB is horizontally centred on
+            // origin) and position.y to `-boundsMinY` (so the lowest
+            // vertex sits on Y=0 in parent frame). We must *add* to
+            // that transform, not overwrite it — otherwise the
+            // horizontal centring is lost and the tile's real mesh
+            // origin (kilometres off centre per nusamai's EPSG:6677
+            // output) shows up in the scene.
+            let priorX = tileRoot.position.x
+            let priorY = tileRoot.position.y
 
-            // Vertical placement: if we have terrain, sample it at
-            // the tile's centre and lift the tile so its bottom-snap
-            // anchor (Y = 0 in local space) sits on the ground under
-            // the tile. Tile-level adjustment only — buildings within
-            // a 1 km tile still see up to ~50 m of ground-elevation
-            // variance that a rigid tile shift can't correct. That
-            // residual drift is acceptable for a first pass; Phase 4
-            // can re-mesh each tile against DEM if needed.
+            // Sample the DEM at the tile's centre in world space.
+            // The grid offset `tile.localCenter` already places the
+            // tile horizontally; we add the terrain's Y at that same
+            // XZ on top of the bottom-snap offset so the tile's
+            // lowest foundation rests on the ground under it.
+            var terrainLift: Float = 0
             if let sampler = terrainSampler {
-                let xz = SIMD2<Float>(position.x, position.z)
+                let xz = SIMD2<Float>(
+                    tile.localCenter.x,
+                    tile.localCenter.z
+                )
                 if let y = sampler(xz) {
-                    position.y = y
+                    terrainLift = y
                 }
             }
-            tileRoot.position += position
+
+            // Additive shift preserves centerHorizontallyAndGroundY's
+            // work: X/Z get the grid stacked on top of the centring,
+            // Y gets the terrain lift stacked on top of the bottom-
+            // snap. The single-line `+=` we used before only touched
+            // X/Z because `tile.localCenter.y` is always 0.
+            tileRoot.position += SIMD3<Float>(
+                tile.localCenter.x,
+                terrainLift,
+                tile.localCenter.z
+            )
+            print(
+                "[SDG-Lab] tile \(tile.rawValue) lift: " +
+                "priorY=\(priorY) terrainY=\(terrainLift) " +
+                "finalY=\(tileRoot.position.y) " +
+                "(priorX=\(priorX) finalX=\(tileRoot.position.x))"
+            )
             root.addChild(tileRoot)
         }
 
