@@ -243,32 +243,57 @@ public final class TerrainLoader {
 
     // MARK: - Height sampling
 
-    /// Sample the terrain's Y in world space at a given X / Z position
-    /// by finding the nearest vertex in any `ModelComponent` under
-    /// `root`. Returns `nil` if no vertices could be read (e.g. the
-    /// entity has no mesh geometry yet).
+    /// Sample the terrain's Y in world space at a given X / Z by
+    /// finding the triangle whose horizontal (XZ) projection contains
+    /// the target and returning the barycentric-interpolated Y of its
+    /// three vertices. Returns `nil` if no triangle in the entity's
+    /// mesh covers `target` (e.g. the entity has no mesh, or the
+    /// target is outside the terrain's footprint).
     ///
-    /// Why not `Scene.raycast`? The make closure runs before the
-    /// physics/collision world has ticked, so raycasting there
-    /// reliably returns empty. Mesh sampling is synchronous,
-    /// deterministic, and works the moment the entity is loaded.
+    /// ### Why not nearest-vertex
     ///
-    /// Precision note: "nearest vertex" is an O(vertices) sweep over
-    /// a ~90 K vertex mesh. That's cheap at load time (one-shot) and
-    /// precise enough for a spawn anchor — we only need Y to within a
-    /// few metres of ground so the player doesn't fall through.
+    /// The Phase 3 / 4 implementations used nearest-vertex sampling.
+    /// On the decimated DEM (15 K verts across 5 × 5 km ≈ 28 m vertex
+    /// spacing) a slope triangle's midpoint can sit several metres
+    /// *above* its nearest vertex's Y. Players snapped onto that
+    /// lower Y got embedded in the slope face, so the first-person
+    /// camera rendered from inside the mesh ("walking over a slope
+    /// the camera clips into the hill underside" — iter 4 playtest).
+    /// Barycentric interpolation returns the exact mesh surface Y, so
+    /// the snap can keep a centimetre-scale margin without the camera
+    /// ducking under the surface.
     ///
-    /// Exposed `public` so callers in other modules (RootView) can
-    /// pick a spawn Y without reopening `TerrainLoader`. `@MainActor`
-    /// because `Entity.transformMatrix(relativeTo:)` and descendant
-    /// traversal touch main-isolated state.
+    /// ### Cost
+    ///
+    /// O(triangles) worst case — we scan every triangle until one
+    /// contains `target`. For the Phase 4 DEM (~30 K triangles) that's
+    /// ~30 K point-in-triangle tests per call, each ~20 float ops.
+    /// Well under a millisecond on M-series; fine for per-player-per-frame
+    /// calls in single-player. Multiplayer scaling is a Phase 5 task
+    /// (either a 2-D quadtree over triangles or a heightfield grid).
+    ///
+    /// ### Tolerance
+    ///
+    /// A small negative ε (`-1e-5`) on the barycentric bounds absorbs
+    /// numerical jitter at triangle edges so a player walking *exactly*
+    /// along an edge doesn't drop into a `nil` and float away.
+    ///
+    /// Exposed `public` for callers in other modules (RootView for
+    /// spawn, `PlayerControlSystem` for ground-follow). `@MainActor`
+    /// because `Entity.transformMatrix(relativeTo:)` and component
+    /// access are main-isolated.
     @MainActor
     public static func sampleTerrainY(
         in root: Entity,
         atWorldXZ target: SIMD2<Float>
     ) -> Float? {
-        var bestY: Float?
-        var bestDistSq: Float = .infinity
+        // Small negative tolerance on the "inside triangle" test.
+        // Positive guards against inclusive-edge jitter; keeping it
+        // mildly negative means a point exactly on an edge counts
+        // as inside exactly one of the two neighbouring triangles
+        // — whichever wins the float race. That's fine for Y; both
+        // sides yield the same surface value at an edge.
+        let epsilon: Float = -1e-5
 
         var stack: [Entity] = [root]
         while let current = stack.popLast() {
@@ -277,30 +302,115 @@ public final class TerrainLoader {
                 let modelComponent = current.components[ModelComponent.self]
             else { continue }
 
-            // World-space transform for this entity's local vertices.
             let toWorld = current.transformMatrix(relativeTo: nil)
 
             for mdl in modelComponent.mesh.contents.models {
                 for part in mdl.parts {
-                    // `part.positions` is non-optional on iOS 18 — every
-                    // mesh part has a position buffer, even if empty.
-                    let positions = part.positions
-                    for local in positions {
-                        let world4 = toWorld * SIMD4<Float>(
-                            local.x, local.y, local.z, 1
-                        )
-                        let dx = world4.x - target.x
-                        let dz = world4.z - target.y
-                        let distSq = dx * dx + dz * dz
-                        if distSq < bestDistSq {
-                            bestDistSq = distSq
-                            bestY = world4.y
-                        }
+                    if let y = sampleFromPart(
+                        part: part,
+                        toWorld: toWorld,
+                        target: target,
+                        epsilon: epsilon
+                    ) {
+                        return y
                     }
                 }
             }
         }
-        return bestY
+        return nil
+    }
+
+    /// Inner loop of `sampleTerrainY`. Iterates every triangle in a
+    /// single `MeshPart`, transforms its vertices to world, runs a
+    /// 2-D point-in-triangle test on the XZ projection, and returns
+    /// the interpolated Y on the first triangle that contains the
+    /// target.
+    @MainActor
+    private static func sampleFromPart(
+        part: MeshResource.Part,
+        toWorld: simd_float4x4,
+        target: SIMD2<Float>,
+        epsilon: Float
+    ) -> Float? {
+        // `MeshBuffer` is an opaque `Collection` on iOS 18 without an
+        // `Int` subscript in the public API, so materialise as Arrays
+        // up front. Cost is one copy of ~15 K vertices + ~30 K indices
+        // per sample call (a few hundred KB, O(ms) on M-series). If
+        // that ever bites, cache the arrays alongside the terrain
+        // entity — but for single-player Phase 4 it's fine.
+        let positionsArr: [SIMD3<Float>] = Array(part.positions)
+        let indicesArr: [UInt32]? = part.triangleIndices.map(Array.init)
+
+        let triCount: Int
+        if let indicesArr {
+            triCount = indicesArr.count / 3
+        } else {
+            triCount = positionsArr.count / 3
+        }
+
+        for t in 0..<triCount {
+            let ia: Int
+            let ib: Int
+            let ic: Int
+            if let indicesArr {
+                let base = t * 3
+                ia = Int(indicesArr[base])
+                ib = Int(indicesArr[base + 1])
+                ic = Int(indicesArr[base + 2])
+            } else {
+                let base = t * 3
+                ia = base
+                ib = base + 1
+                ic = base + 2
+            }
+
+            // Transform vertices to world space. We only need X/Z for
+            // the in-triangle test and Y for the interpolation.
+            let la = positionsArr[ia]
+            let lb = positionsArr[ib]
+            let lc = positionsArr[ic]
+            let wa = toWorld * SIMD4<Float>(la.x, la.y, la.z, 1)
+            let wb = toWorld * SIMD4<Float>(lb.x, lb.y, lb.z, 1)
+            let wc = toWorld * SIMD4<Float>(lc.x, lc.y, lc.z, 1)
+
+            // 2-D barycentric in the XZ plane. Broken into explicit
+            // Float sub-expressions so the type-checker doesn't time
+            // out on a single long arithmetic chain (Swift 6 known
+            // issue with overload resolution on SIMD-scalar mix).
+            //
+            // Reference: Real-Time Collision Detection (Ericson), §3.4.
+            let ax: Float = wa.x
+            let az: Float = wa.z
+            let ay: Float = wa.y
+            let bx: Float = wb.x
+            let bz: Float = wb.z
+            let by: Float = wb.y
+            let cx: Float = wc.x
+            let cz: Float = wc.z
+            let cy: Float = wc.y
+            let px: Float = target.x
+            let pz: Float = target.y
+
+            let d1: Float = (bz - cz) * (ax - cx)
+            let d2: Float = (cx - bx) * (az - cz)
+            let denom: Float = d1 + d2
+            guard abs(denom) > 1e-9 else { continue }  // degenerate tri
+
+            let u1: Float = (bz - cz) * (px - cx)
+            let u2: Float = (cx - bx) * (pz - cz)
+            let u: Float = (u1 + u2) / denom
+
+            let v1: Float = (cz - az) * (px - cx)
+            let v2: Float = (ax - cx) * (pz - cz)
+            let v: Float = (v1 + v2) / denom
+
+            let w: Float = 1 - u - v
+
+            if u >= epsilon && v >= epsilon && w >= epsilon {
+                return u * ay + v * by + w * cy
+            }
+        }
+        return nil
     }
 
     // MARK: - Material

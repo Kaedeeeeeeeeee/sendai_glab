@@ -11,6 +11,7 @@
 // the device smoke test documented in the PR description.
 
 import XCTest
+import RealityKit
 @testable import SDGGameplay
 
 @MainActor
@@ -161,6 +162,79 @@ final class TerrainLoaderTests: XCTestCase {
     /// test bundle that ships the USDZ; that's the responsibility of
     /// the device smoke test in the PR description rather than this
     /// pure-Swift unit test.
+    // MARK: - Triangle-barycentric Y sampling
+
+    /// Build a single-triangle `Entity` so the sampler can be exercised
+    /// end-to-end without a real USDZ. The triangle is flat-lit in XZ
+    /// (right triangle with legs along +X and +Z) and has distinct Y
+    /// per vertex so interpolation errors are easy to diagnose.
+    ///
+    /// Vertex layout (local frame, no transform applied):
+    ///   v0 = ( 0, 10,  0)   // Y = 10 at origin
+    ///   v1 = (10, 20,  0)   // Y = 20 at +X edge
+    ///   v2 = ( 0, 30, 10)   // Y = 30 at +Z edge
+    @MainActor
+    private func makeTriangleEntity() throws -> Entity {
+        var descriptor = MeshDescriptor(name: "TestTriangle")
+        descriptor.positions = MeshBuffers.Positions([
+            SIMD3<Float>(0,  10,  0),
+            SIMD3<Float>(10, 20,  0),
+            SIMD3<Float>(0,  30, 10)
+        ])
+        descriptor.primitives = .triangles([0, 1, 2])
+        let mesh = try MeshResource.generate(from: [descriptor])
+        return ModelEntity(mesh: mesh, materials: [])
+    }
+
+    /// Interpolating at the triangle's centroid must return the mean
+    /// of the three vertex Ys. This is the "proper sampling" guarantee
+    /// that kept the Phase 4 iter 5 camera-through-slope bug out: the
+    /// old nearest-vertex code would have returned 10, 20, *or* 30 —
+    /// never 20, the true surface value at the centroid.
+    func testSampleTerrainYInterpolatesCentroidOfTriangle() throws {
+        let entity = try makeTriangleEntity()
+        // Centroid XZ = ((0+10+0)/3, (0+0+10)/3) = (3.333..., 3.333...)
+        let centroidX: Float = (0 + 10 + 0) / 3
+        let centroidZ: Float = (0 + 0 + 10) / 3
+        // Expected interpolated Y: (10 + 20 + 30) / 3 = 20
+        let y = TerrainLoader.sampleTerrainY(
+            in: entity,
+            atWorldXZ: SIMD2<Float>(centroidX, centroidZ)
+        )
+        XCTAssertEqual(try XCTUnwrap(y), 20.0, accuracy: 1e-3)
+    }
+
+    /// Sampling exactly at a vertex must return that vertex's Y — the
+    /// barycentric math degenerates cleanly at corners (one weight → 1,
+    /// the other two → 0). Pinning this as a regression guard because
+    /// a subtle epsilon-handling bug could kick vertex samples into
+    /// the adjacent triangle's interpolation.
+    func testSampleTerrainYReturnsVertexYAtExactVertex() throws {
+        let entity = try makeTriangleEntity()
+        let y = TerrainLoader.sampleTerrainY(
+            in: entity,
+            atWorldXZ: SIMD2<Float>(10, 0)  // v1 XZ
+        )
+        XCTAssertEqual(try XCTUnwrap(y), 20.0, accuracy: 1e-3)
+    }
+
+    /// A query clearly outside the triangle must return `nil`. The
+    /// runtime snap-to-ground relies on this to leave the player's Y
+    /// alone when they walk off the terrain footprint — returning a
+    /// stale "nearest triangle" Y would slingshot them.
+    func testSampleTerrainYReturnsNilOutsideTriangle() throws {
+        let entity = try makeTriangleEntity()
+        // Triangle corners are (0,0), (10,0), (0,10); (100, 100) is
+        // well outside.
+        let y = TerrainLoader.sampleTerrainY(
+            in: entity,
+            atWorldXZ: SIMD2<Float>(100, 100)
+        )
+        XCTAssertNil(y, "sampling outside the terrain footprint must return nil")
+    }
+
+    // MARK: - Envelope-missing error path
+
     func testLoadThrowsEnvelopeMissingWhenManifestLacksTile() async throws {
         let emptyBundle = Bundle(for: type(of: self))
         let manifest = try manifestWithoutTerrain()

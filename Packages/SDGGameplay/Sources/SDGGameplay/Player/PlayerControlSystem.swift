@@ -162,28 +162,15 @@ public final class PlayerControlSystem: System {
         }
         guard let terrainY else { return }
         // Player rig has feet at entity-local Y = 0, camera head at
-        // local Y = 1.5. Setting world Y = sampledY + margin puts
-        // feet near the surface and camera at sampledY + margin + 1.5.
-        //
-        // Why 2.0 m margin and not a handful of centimetres:
-        //
-        // `sampleTerrainY` returns the **nearest vertex** Y. On the
-        // decimated DEM (15 K verts over 5 × 5 km ≈ 28 m between
-        // adjacent verts) a slope triangle's midpoint can have a
-        // real surface Y several metres above the nearest vert's Y.
-        // Snapping to the lower vert embeds the player in the slope
-        // face; the camera, 1.5 m above, then renders from *inside*
-        // the mesh — which the player sees as "camera clipping the
-        // hill underside" (device feedback, iter 4).
-        //
-        // A 2 m margin keeps the camera ≥ 0.5 m above the actual
-        // interpolated surface for slopes where the vertex-error is
-        // ≤ 3 m, which covers the vast majority of the decimated DEM.
-        // True triangle-barycentric sampling is the correct fix and
-        // is on the Phase 5 short-list; the margin is a pragmatic
-        // "good enough" for QA.
+        // local Y = 1.5. `sampleTerrainY` now does triangle-barycentric
+        // interpolation, so the sampled value equals the actual mesh
+        // surface Y under the player — no vertex-step error to absorb.
+        // A 10 cm margin is enough to prevent z-fighting between feet
+        // and the terrain material; anything larger would float the
+        // character visibly, which matters for future multiplayer where
+        // other clients see this rig's world Y.
         var newPos = player.position
-        newPos.y = terrainY + 2.0
+        newPos.y = terrainY + 0.1
         player.position = newPos
     }
 
