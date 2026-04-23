@@ -310,7 +310,16 @@ public final class PlateauEnvironmentLoader {
     ///   - Phase 4 iter 4: 5.0 → 10.0 (still slightly sunk at 5 m)
     ///   - Phase 4 iter 5: 10.0 → 15.0 (buildings at hilltops still clip
     ///     terrain; extra 5 m defends against the worst LOD2 basement dip)
-    internal static let envelopeTileGroundLift: Float = 15.0
+    ///   - Phase 4 iter 7: 15.0 → 25.0 (large cluster of buildings still
+    ///     visibly sunk on device — the AABB-centre vs. envelope-centre
+    ///     gap is bigger on tiles with deep basements or tall reference
+    ///     poles than the iter 4/5 samples suggested)
+    ///
+    /// At this magnitude the "constant nudge" stops being defensible as
+    /// a rounding artefact — a Phase 5 per-tile lookup (or per-building
+    /// DEM re-projection) would be the right way forward if iter 7
+    /// still shows embedding. Noted in ADR-0007.
+    internal static let envelopeTileGroundLift: Float = 25.0
 
     // MARK: - Materials
 
