@@ -1022,6 +1022,11 @@ public struct RootView: View {
         DisasterShakeTargetComponent.registerComponent()
         DisasterFloodWaterComponent.registerComponent()
         DisasterSystem.registerSystem()
+        // Phase 8.1: player-side camera jitter. Reads
+        // `DisasterSystem.boundStore` directly so no `@State` on
+        // RootView or separate binding slot is needed. Registered
+        // after DisasterSystem so the System update order is stable.
+        DisasterCameraShakeSystem.registerSystem()
         systemsRegistered = true
     }
 
