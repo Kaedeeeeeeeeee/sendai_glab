@@ -53,6 +53,35 @@ public enum PlateauEnvironmentLoaderError: Error, Sendable {
     case entityLoadFailed(tile: PlateauTile, underlying: String)
 }
 
+/// How a tile's root entity should be centred after loading. Separate
+/// from placement so callers can combine "skip centring" with an
+/// envelope-supplied absolute position (Phase 4 CityGML alignment) or
+/// keep the Phase 2 bottom-snap fallback when no manifest is supplied.
+///
+/// Exposed `public` because `loadTile(_:centerMode:)` takes it as a
+/// parameter; callers that want to opt out of centring need the enum
+/// in scope.
+public enum PlateauTileCenterMode: Sendable {
+
+    /// Centre horizontally + snap lowest vertex to Y = 0. The Phase 2
+    /// Alpha default — see `EnvironmentCenterer.centerHorizontallyAndGroundY`
+    /// and `loadDefaultCorridor()`'s doc comment for the trade-offs.
+    case bottomSnap
+
+    /// Translate so the AABB centre sits at the tile's local origin.
+    /// Useful when downstream code wants to control Y placement itself
+    /// (e.g. a caller supplying its own ground plane).
+    case aabbCenter
+
+    /// Skip centring entirely. The tile keeps whatever local origin
+    /// nusamai emitted — AABB-centred in its own frame by the converter.
+    /// Paired with `EnvelopeManifest.realityKitPosition(for:)` at the
+    /// corridor level, this is the Phase 4 real-world-origin path: the
+    /// manifest supplies the absolute position and the entity's own
+    /// frame stays untouched.
+    case none
+}
+
 /// Loads PLATEAU tiles into RealityKit.
 ///
 /// ### Usage
@@ -83,7 +112,34 @@ public final class PlateauEnvironmentLoader {
     // MARK: - Public API
 
     /// Load every tile in `PlateauTile.allCases` and compose them
-    /// under a single root entity with `localCenter` offsets applied.
+    /// under a single root entity.
+    ///
+    /// ### Placement strategy
+    ///
+    /// Two modes, selected by the presence of a `manifest`:
+    ///
+    /// * **No manifest (legacy path, default)**: each tile is
+    ///   bottom-snapped via `EnvironmentCenterer.centerHorizontallyAndGroundY`
+    ///   and then offset by `tile.localCenter` — the Phase 2 Alpha
+    ///   layout that spaces tiles on a nominal 3rd-mesh grid. Kept as
+    ///   the default so existing callers (and the legacy test suite)
+    ///   stay on the same code path.
+    ///
+    /// * **With manifest (Phase 4 CityGML alignment)**: each tile's
+    ///   position comes from `manifest.realityKitPosition(for:)`,
+    ///   which resolves the real-world envelope centre relative to
+    ///   the spawn tile. Centring is skipped (`CenterMode.none`) so
+    ///   the entity keeps its nusamai-emitted local origin, and the
+    ///   manifest position is written **absolutely** — not added to
+    ///   anything else. This is the root-cause fix for the floating-
+    ///   building regression discussed in ADR-0006: with a shared
+    ///   coordinate anchor, buildings and the DEM agree on where
+    ///   things live.
+    ///
+    ///   If a tile is missing from the manifest the loader logs a
+    ///   warning and falls back to the legacy `tile.localCenter` +
+    ///   bottom-snap path for that tile only — a partial manifest
+    ///   must not blackhole the whole corridor.
     ///
     /// The root is positioned at the world origin; the spawn tile
     /// (`aobayamaCampus`) therefore sits at the world origin too.
@@ -93,34 +149,53 @@ public final class PlateauEnvironmentLoader {
     /// iPad Air's budget (Phase 2 profiling task). Switch to a
     /// `TaskGroup` later if that measurement argues otherwise.
     ///
+    /// - Parameter manifest: Optional CityGML envelope manifest.
+    ///   `nil` (the default) keeps the Phase 2 legacy layout;
+    ///   non-`nil` switches on the Phase 4 real-origin placement
+    ///   path.
     /// - Throws: First tile failure aborts the corridor load — one
     ///   missing tile means the corridor layout is incomplete, and
     ///   shipping a partial corridor hides the regression.
-    ///
-    /// DEM integration note (ADR-0006): Phase 3 attempted to lift
-    /// each tile onto a sampled DEM surface. Every compromise
-    /// strategy failed on device because nusamai strips the real-
-    /// world Y origin from each GLB. Alignment is deferred to Phase 4
-    /// via CityGML envelope parsing. Until then, every tile sits on
-    /// the shared Y = 0 bottom-snap plane.
-    public func loadDefaultCorridor() async throws -> Entity {
+    public func loadDefaultCorridor(
+        manifest: EnvelopeManifest? = nil
+    ) async throws -> Entity {
         let root = Entity()
         root.name = "PlateauCorridor"
 
         for tile in PlateauTile.allCases {
-            let tileRoot = try await loadTile(tile)
-            tileRoot.position += tile.localCenter
+            let placement = Self.tilePlacement(tile: tile, manifest: manifest)
+            let tileRoot = try await loadTile(tile, centerMode: placement.centerMode)
+            // Absolute assignment in both modes. The legacy branch of
+            // `tilePlacement` resolves to `tile.localCenter` and the
+            // loaded entity is already bottom-snapped at the origin of
+            // its own frame, so assigning (rather than +=) produces
+            // identical behaviour to the pre-Phase-4 `tileRoot.position
+            // += tile.localCenter` one-liner. The envelope branch
+            // *requires* absolute assignment — see ADR-0006 postmortem
+            // for why `+=` + centring collided in Phase 3.
+            tileRoot.position = placement.position
             root.addChild(tileRoot)
         }
 
         return root
     }
 
-    /// Load a single tile, centre it, and replace its materials with
-    /// Toon variants. The returned entity is *not* offset by
-    /// `tile.localCenter` — the caller decides whether to place it
-    /// absolutely or in a corridor layout.
-    public func loadTile(_ tile: PlateauTile) async throws -> Entity {
+    /// Load a single tile and replace its materials with Toon variants.
+    /// The returned entity is *not* offset by `tile.localCenter` — the
+    /// caller decides whether to place it absolutely or in a corridor
+    /// layout.
+    ///
+    /// - Parameter tile: The PLATEAU tile to load.
+    /// - Parameter centerMode: How to centre the loaded entity before
+    ///   returning. Defaults to `.bottomSnap` — the Phase 2 Alpha
+    ///   behaviour, kept as the default so existing callers don't have
+    ///   to opt in. Phase 4 callers that place tiles via an envelope
+    ///   manifest pass `.none` so the entity keeps its nusamai-emitted
+    ///   local origin.
+    public func loadTile(
+        _ tile: PlateauTile,
+        centerMode: PlateauTileCenterMode = .bottomSnap
+    ) async throws -> Entity {
         // 1. Convert (or read the cache / pre-shipped USDZ).
         let resourceURL: URL
         do {
@@ -149,19 +224,69 @@ public final class PlateauEnvironmentLoader {
             )
         }
 
-        // 3. Centre horizontally + snap lowest vertex to Y=0. PLATEAU
+        // 3. Centre according to the caller's chosen mode. PLATEAU
         //    nusamai output keeps real-world geographic elevation, so
         //    AABB-centre alignment puts half the tile underground.
         //    Bottom-snap keeps buildings on the ground plane while
         //    hill-top buildings remain elevated relative to valley
-        //    ones — visually honest until Phase 2 Beta brings DEM.
-        EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
+        //    ones — visually honest when no envelope manifest is
+        //    supplied. The Phase 4 envelope path skips centring
+        //    entirely and relies on the manifest's real-world origin
+        //    for absolute placement.
+        switch centerMode {
+        case .bottomSnap:
+            EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
+        case .aabbCenter:
+            EnvironmentCenterer.centerAtOrigin(entity)
+        case .none:
+            break
+        }
 
         // 4. Toonify.
         let palette = Self.warmToonColour(for: tile)
         Self.applyToonMaterial(toDescendantsOf: entity, baseColor: palette)
 
         return entity
+    }
+
+    // MARK: - Placement helper
+
+    /// Compute a tile's final position and centring mode given an
+    /// optional envelope manifest. Pure function — no scene graph
+    /// access — so the placement policy is unit-testable without
+    /// loading a USDZ.
+    ///
+    /// Semantics:
+    /// * `manifest == nil` → legacy path: `(tile.localCenter, .bottomSnap)`.
+    /// * `manifest` supplies the tile id → Phase 4 path:
+    ///   `(manifest.realityKitPosition(for: tile.rawValue)!, .none)`.
+    /// * `manifest` omits the tile id → partial-manifest fallback:
+    ///   `(tile.localCenter, .bottomSnap)`, plus a warning log so
+    ///   the gap is visible during bring-up.
+    ///
+    /// Exposed `internal` for the test suite. Returning a struct with
+    /// named fields (rather than a tuple) keeps the call sites readable
+    /// and makes adding a third axis — e.g. per-tile scale overrides —
+    /// a non-breaking change.
+    internal static func tilePlacement(
+        tile: PlateauTile,
+        manifest: EnvelopeManifest?
+    ) -> (position: SIMD3<Float>, centerMode: PlateauTileCenterMode) {
+        guard let manifest else {
+            return (tile.localCenter, .bottomSnap)
+        }
+        if let envelopePosition = manifest.realityKitPosition(for: tile.rawValue) {
+            return (envelopePosition, .none)
+        }
+        // Partial manifest — fall back per-tile so the rest of the
+        // corridor can still load. Visible as a warning so playtest
+        // bug reports of "one tile in the wrong place" lead back to
+        // the pipeline output rather than the runtime.
+        print(
+            "[SDG-Lab][plateau] envelope manifest missing tile id \(tile.rawValue); " +
+            "falling back to localCenter + bottom-snap"
+        )
+        return (tile.localCenter, .bottomSnap)
     }
 
     // MARK: - Materials

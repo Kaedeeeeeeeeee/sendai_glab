@@ -132,4 +132,185 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
 
         XCTAssertNil(empty.components[ModelComponent.self])
     }
+
+    // MARK: - Envelope-manifest placement (Phase 4)
+    //
+    // The placement policy is extracted into the pure-function helper
+    // `tilePlacement(tile:manifest:)` so these tests don't need to
+    // actually load USDZ files — `loadDefaultCorridor` composes that
+    // helper with the USDZ-loading step, and the loading step is
+    // already exercised by the integration layer. Driving the helper
+    // directly keeps these tests hermetic + fast, and exactly mirrors
+    // the information flow the corridor loop uses.
+
+    /// Fixture that mirrors `PlateauTile.allCases` — one envelope per
+    /// corridor tile, laid out on the nominal 3rd-mesh grid so the
+    /// expected RealityKit positions are easy to reason about.
+    ///
+    /// Centres in EPSG:6677 (metres):
+    /// - `57403617` (spawn, Aobayama campus)     (10000, 21000, 100)
+    /// - `57403607` (Aobayama north, 1 km south) (10000, 20000, 100)
+    /// - `57403608` (Aobayama castle, SE)        (11250, 20000, 100)
+    /// - `57403618` (Kawauchi, E)                (11250, 21000, 100)
+    /// - `57403619` (Tohoku Gakuin, EE)          (12500, 21000, 100)
+    ///
+    /// Each envelope is 1250 × 1000 × 20 m centred on the stated
+    /// centre, which is enough for `realityKitPosition(for:)` to round-
+    /// trip without floating-point surprises.
+    private static let fullCorridorFixtureJSON: String = """
+    {
+      "meta": {
+        "source_crs": "EPSG:6697",
+        "target_crs": "EPSG:6677",
+        "spawn_tile_id": "57403617",
+        "generated_by": "PlateauEnvironmentLoaderTests"
+      },
+      "envelopes": {
+        "57403617": {
+          "lower_corner_m": [9375.0,  20500.0,  90.0],
+          "upper_corner_m": [10625.0, 21500.0, 110.0]
+        },
+        "57403607": {
+          "lower_corner_m": [9375.0,  19500.0,  90.0],
+          "upper_corner_m": [10625.0, 20500.0, 110.0]
+        },
+        "57403608": {
+          "lower_corner_m": [10625.0, 19500.0,  90.0],
+          "upper_corner_m": [11875.0, 20500.0, 110.0]
+        },
+        "57403618": {
+          "lower_corner_m": [10625.0, 20500.0,  90.0],
+          "upper_corner_m": [11875.0, 21500.0, 110.0]
+        },
+        "57403619": {
+          "lower_corner_m": [11875.0, 20500.0,  90.0],
+          "upper_corner_m": [13125.0, 21500.0, 110.0]
+        }
+      }
+    }
+    """
+
+    /// Manifest that covers only 3 of the 5 corridor tiles, for the
+    /// partial-manifest fallback test. Spawn is still `57403617`.
+    private static let partialCorridorFixtureJSON: String = """
+    {
+      "meta": {
+        "spawn_tile_id": "57403617"
+      },
+      "envelopes": {
+        "57403617": {
+          "lower_corner_m": [9375.0,  20500.0,  90.0],
+          "upper_corner_m": [10625.0, 21500.0, 110.0]
+        },
+        "57403607": {
+          "lower_corner_m": [9375.0,  19500.0,  90.0],
+          "upper_corner_m": [10625.0, 20500.0, 110.0]
+        },
+        "57403618": {
+          "lower_corner_m": [10625.0, 20500.0,  90.0],
+          "upper_corner_m": [11875.0, 21500.0, 110.0]
+        }
+      }
+    }
+    """
+
+    private func makeManifest(jsonString: String) throws -> EnvelopeManifest {
+        try EnvelopeManifest(jsonData: Data(jsonString.utf8))
+    }
+
+    /// With a full manifest, every tile's placement must come from
+    /// `manifest.realityKitPosition(for:)`, centring is skipped, and
+    /// the position equals what the manifest returned. Pins the
+    /// Phase 4 real-origin path end-to-end at the helper boundary.
+    func testCorridorWithManifestPositionsTilesByEnvelope() throws {
+        let manifest = try makeManifest(jsonString: Self.fullCorridorFixtureJSON)
+
+        for tile in PlateauTile.allCases {
+            let expected = try XCTUnwrap(
+                manifest.realityKitPosition(for: tile.rawValue),
+                "fixture missing tile \(tile.rawValue); test setup bug"
+            )
+            let placement = PlateauEnvironmentLoader.tilePlacement(
+                tile: tile,
+                manifest: manifest
+            )
+            XCTAssertEqual(
+                placement.position, expected,
+                "tile \(tile.rawValue) placement diverged from manifest"
+            )
+            XCTAssertEqual(
+                placement.centerMode, .none,
+                "tile \(tile.rawValue) must skip centring on the envelope path"
+            )
+        }
+
+        // Sanity-check one well-known offset end-to-end so a bug in
+        // `realityKitPosition` doesn't silently make this test tautological.
+        // Kawauchi (57403618) is 1250 m east, same northing → (1250, 0, 0).
+        let kawauchi = PlateauEnvironmentLoader.tilePlacement(
+            tile: .kawauchiCampus,
+            manifest: manifest
+        )
+        XCTAssertEqual(kawauchi.position.x, 1250.0, accuracy: 1e-3)
+        XCTAssertEqual(kawauchi.position.y,    0.0, accuracy: 1e-3)
+        XCTAssertEqual(kawauchi.position.z,    0.0, accuracy: 1e-3)
+    }
+
+    /// Tiles missing from the manifest must fall back to the legacy
+    /// `localCenter` + `.bottomSnap` pair, not blow up or end at the
+    /// origin. A partial manifest is a pipeline reality — bring-up
+    /// sometimes ships envelopes for a subset of tiles while the rest
+    /// are still being authored.
+    func testCorridorWithPartialManifestFallsBackToLocalCenter() throws {
+        let manifest = try makeManifest(jsonString: Self.partialCorridorFixtureJSON)
+
+        let covered: Set<String> = ["57403617", "57403607", "57403618"]
+
+        for tile in PlateauTile.allCases {
+            let placement = PlateauEnvironmentLoader.tilePlacement(
+                tile: tile,
+                manifest: manifest
+            )
+            if covered.contains(tile.rawValue) {
+                let expected = try XCTUnwrap(
+                    manifest.realityKitPosition(for: tile.rawValue)
+                )
+                XCTAssertEqual(
+                    placement.position, expected,
+                    "covered tile \(tile.rawValue) must use manifest position"
+                )
+                XCTAssertEqual(placement.centerMode, .none)
+            } else {
+                XCTAssertEqual(
+                    placement.position, tile.localCenter,
+                    "uncovered tile \(tile.rawValue) must fall back to localCenter"
+                )
+                XCTAssertEqual(
+                    placement.centerMode, .bottomSnap,
+                    "uncovered tile \(tile.rawValue) must bottom-snap on the fallback path"
+                )
+            }
+        }
+    }
+
+    /// Regression guard: calling `loadDefaultCorridor()` without a
+    /// manifest — the default — must still pin every tile to its
+    /// `localCenter` and bottom-snap, preserving Phase 2 Alpha
+    /// behaviour for any caller that hasn't opted in to Phase 4.
+    func testCorridorWithoutManifestUsesLegacyPath() {
+        for tile in PlateauTile.allCases {
+            let placement = PlateauEnvironmentLoader.tilePlacement(
+                tile: tile,
+                manifest: nil
+            )
+            XCTAssertEqual(
+                placement.position, tile.localCenter,
+                "legacy path must place \(tile.rawValue) at its localCenter"
+            )
+            XCTAssertEqual(
+                placement.centerMode, .bottomSnap,
+                "legacy path must bottom-snap \(tile.rawValue)"
+            )
+        }
+    }
 }
