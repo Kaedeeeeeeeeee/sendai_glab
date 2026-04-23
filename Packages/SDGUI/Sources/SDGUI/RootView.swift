@@ -65,6 +65,11 @@ final class POCSceneRefs {
     /// before the conversion pipeline has produced them.
     var environmentRoot: Entity?
 
+    /// Phase 7.1: cached terrain entity so the exit handler can
+    /// query `TerrainLoader.sampleTerrainY(in:atWorldXZ:)` for a
+    /// safe landing Y when disembarking a drone at altitude.
+    var loadedTerrain: Entity?
+
     init() {}
 }
 
@@ -108,6 +113,11 @@ public struct RootView: View {
     /// Latest joystick output. Mirrored into `PlayerControlStore` via
     /// `.onChange` so the joystick view stays decoupled from Stores.
     @State private var joystickAxis: SIMD2<Float> = .zero
+
+    /// Phase 7.1: vertical stick output for piloting drones. Mirrored
+    /// into `VehicleStore.pilot(vertical:)` via `.onChange`. Hidden
+    /// while the player is on foot; see HUDOverlay's visibility gate.
+    @State private var verticalSliderValue: Float = 0
 
     /// Frame-to-frame look baseline so we emit deltas instead of a
     /// growing absolute. Reset on gesture end.
@@ -236,6 +246,7 @@ public struct RootView: View {
                 inventoryStore: inventoryStore,
                 vehicleStore: vehicleStore,
                 joystickAxis: $joystickAxis,
+                verticalSliderValue: $verticalSliderValue,
                 playerWorldPosition: polledPlayerPosition,
                 onDrillTapped: handleDrillTap,
                 onInventoryTapped: { showInventory = true },
@@ -325,16 +336,30 @@ public struct RootView: View {
             // holds (the View knows nothing about Stores; RootView picks
             // the recipient).
             //
-            // Vertical axis is wired to 0 for MVP; a dedicated vertical
-            // stick (drone up/down) lands in Phase 7.1.
+            // Phase 7.1: the vertical axis now comes from the dedicated
+            // `verticalSliderValue` binding instead of a hardcoded 0.
             let playerStore = self.playerStore
             let vehicleStore = self.vehicleStore
+            let vertical = verticalSliderValue
             Task { @MainActor in
                 if vehicleStore.occupiedVehicleId != nil {
-                    await vehicleStore.intent(.pilot(axis: new, vertical: 0))
+                    await vehicleStore.intent(.pilot(axis: new, vertical: vertical))
                 } else {
                     await playerStore.intent(.move(new))
                 }
+            }
+        }
+        .onChange(of: verticalSliderValue) { _, newVertical in
+            // Phase 7.1 sibling to the joystick routing: vertical-only
+            // updates still need to re-publish the full pilot intent
+            // (axis + vertical) because `.pilot` overwrites both fields
+            // every call — a lonely axis update would otherwise zero
+            // out the vertical and vice-versa.
+            let vehicleStore = self.vehicleStore
+            let axis = joystickAxis
+            Task { @MainActor in
+                guard vehicleStore.occupiedVehicleId != nil else { return }
+                await vehicleStore.intent(.pilot(axis: axis, vertical: newVertical))
             }
         }
     }
@@ -400,6 +425,9 @@ public struct RootView: View {
                 let terrain = try await terrainLoader.load()
                 content.add(terrain)
                 loadedTerrain = terrain
+                // Phase 7.1: cache the terrain entity so the vehicle
+                // exit handler can DEM-raycast for a safe landing Y.
+                sceneRefs.loadedTerrain = terrain
             } catch {
                 print("[SDG-Lab][p4] TerrainLoader failed, using flat fallback plane: \(error)")
                 content.add(fallbackGround)
@@ -694,7 +722,11 @@ public struct RootView: View {
         }
         camera.removeFromParent()
         vehicleEntity.addChild(camera)
+        // Phase 7.1: initial pose. `VehicleFollowCamSystem` eases
+        // this toward `VehicleFollowCamComponent.targetOffset` each
+        // frame so the camera doesn't rigidly snap on fast yaw.
         camera.transform.translation = SIMD3<Float>(0, 1.0, -2.0)
+        vehicleEntity.components.set(VehicleFollowCamComponent())
         // Disable AFTER camera detach; `isEnabled = false` propagates
         // to descendants, so a still-parented camera would go dark.
         playerBody.isEnabled = false
@@ -723,13 +755,27 @@ public struct RootView: View {
         }
         playerBody.isEnabled = true
         if let vehicleEntity = vehicleStore.entity(for: event.vehicleId) {
+            // Phase 7.1: clean up the follow-cam marker so a future
+            // board on a different vehicle doesn't inherit stale state.
+            vehicleEntity.components.remove(VehicleFollowCamComponent.self)
+
             let vehiclePos = vehicleEntity.position(relativeTo: nil)
-            // Place the player 0.5 m below vehicle origin so the feet
-            // are on the ground when the vehicle was hovering. Phase
-            // 7.1 can raycast the DEM for a real landing Y; MVP trusts
-            // the vehicle's hover height.
+            let vehicleXZ = SIMD2<Float>(vehiclePos.x, vehiclePos.z)
+            // Phase 7.1: DEM raycast for a safe landing Y. Drone may
+            // be hovering at 30 m; without this the player pops into
+            // thin air and falls. Falls back to "0.5 m below vehicle"
+            // when the drone has flown off the shipped DEM footprint.
+            let landingY: Float
+            if let terrain = sceneRefs.loadedTerrain,
+               let surfaceY = TerrainLoader.sampleTerrainY(
+                   in: terrain, atWorldXZ: vehicleXZ
+               ) {
+                landingY = surfaceY + 0.1
+            } else {
+                landingY = vehiclePos.y - 0.5
+            }
             playerBody.position = SIMD3<Float>(
-                vehiclePos.x, vehiclePos.y - 0.5, vehiclePos.z
+                vehiclePos.x, landingY, vehiclePos.z
             )
         }
     }
@@ -1022,6 +1068,11 @@ public struct RootView: View {
         DisasterShakeTargetComponent.registerComponent()
         DisasterFloodWaterComponent.registerComponent()
         DisasterSystem.registerSystem()
+        // Phase 7.1: drone follow-cam ease. Component marks the
+        // occupied vehicle's entity; the System eases the child
+        // camera's local translation toward the component's target.
+        VehicleFollowCamComponent.registerComponent()
+        VehicleFollowCamSystem.registerSystem()
         systemsRegistered = true
     }
 
