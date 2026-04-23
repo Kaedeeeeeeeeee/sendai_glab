@@ -126,6 +126,20 @@ public struct RootView: View {
     /// Reused across view rebuilds; cheap to construct.
     @State private var environmentLoader = PlateauEnvironmentLoader()
 
+    /// Loads the decimated PLATEAU DEM terrain. Placed by the Phase 4
+    /// envelope manifest so it shares a real-world origin with the
+    /// building tiles. `nil` manifest → Phase 3 bottom-snap fallback.
+    @State private var terrainLoader = TerrainLoader()
+
+    /// CityGML `<gml:Envelope>`-derived real-world position table for
+    /// every PLATEAU tile shipped (5 bldg + 1 dem). Loaded once from
+    /// `Resources/Environment/plateau_envelopes.json` in `bootstrap()`
+    /// and passed to both loaders so buildings + terrain agree on
+    /// spatial anchoring. `nil` when the manifest file is missing
+    /// (e.g. a stripped test bundle); loaders fall back to the
+    /// Phase 2/3 bottom-snap layout in that case.
+    @State private var envelopeManifest: EnvelopeManifest?
+
     /// Loads `Character_*.usdz` from the app bundle and attaches Player
     /// components + camera.
     @State private var characterLoader = CharacterLoader()
@@ -276,12 +290,15 @@ public struct RootView: View {
         RealityView { content in
             Self.registerSystemsOnce()
 
-            // 1. Big green ground plane covering the entire 5-tile
-            //    corridor (~3 km east-west by ~2 km north-south).
-            //    Positioned slightly below Y=0 so the USDZ buildings'
-            //    ground-floor verts (at Y≈0 after centering) appear to
-            //    rest on it without z-fighting.
-            let ground = ModelEntity(
+            // 1. Fallback green ground plane — added only if the DEM
+            //    terrain later fails to load. When terrain ships (the
+            //    Phase 4 default), the plane would overlap with the
+            //    DEM mesh and z-fight, so we skip it; the terrain's
+            //    collision shapes catch the player via
+            //    `PlayerControlSystem.snapToGround`. The plane entity
+            //    is prepared here but only added to `content` inside
+            //    the terrain-load failure path below.
+            let fallbackGround = ModelEntity(
                 mesh: .generatePlane(width: 3500, depth: 2000),
                 materials: [SimpleMaterial(
                     color: .systemGreen,
@@ -289,19 +306,79 @@ public struct RootView: View {
                     isMetallic: false
                 )]
             )
-            ground.position = SIMD3<Float>(1250, -0.02, 500)   // corridor mid-point
-            content.add(ground)
+            fallbackGround.position = SIMD3<Float>(1250, -0.02, 500)
+            fallbackGround.generateCollisionShapes(recursive: false)
 
-            // 2. PLATEAU corridor (5 pre-converted USDZ tiles). Toon
-            //    materials are applied inside the loader. If any tile
-            //    is missing, the loader throws and we proceed without
-            //    cityscape so the app still launches.
+            // 2a. CityGML envelope manifest (Phase 4 / ADR-0007). Loaded
+            //     once and shared by terrain + building loaders so both
+            //     anchor against the same real-world origin (spawn tile
+            //     centre). Missing-manifest path is a soft fallback to
+            //     the Phase 3 bottom-snap layout — tests and stripped
+            //     bundles keep working.
+            var loadedManifest: EnvelopeManifest?
             do {
-                let corridor = try await environmentLoader.loadDefaultCorridor()
+                loadedManifest = try EnvelopeManifest(bundle: .main)
+                envelopeManifest = loadedManifest
+                print("[SDG-Lab][p4] envelope manifest loaded, \((loadedManifest?.envelopes.count ?? 0)) tiles")
+            } catch {
+                print("[SDG-Lab][p4] envelope manifest missing, falling back to Phase 3 layout: \(error)")
+            }
+
+            // 2b. PLATEAU DEM terrain. Positioned via the envelope
+            //     manifest (or bottom-snapped if manifest is nil).
+            //     Failure is soft: we drop in the flat fallback plane
+            //     from step 1 instead so the player has something to
+            //     stand on and the scene still launches.
+            var loadedTerrain: Entity?
+            do {
+                let terrainLoader = TerrainLoader(
+                    bundle: .main,
+                    manifest: loadedManifest
+                )
+                let terrain = try await terrainLoader.load()
+                content.add(terrain)
+                loadedTerrain = terrain
+            } catch {
+                print("[SDG-Lab][p4] TerrainLoader failed, using flat fallback plane: \(error)")
+                content.add(fallbackGround)
+            }
+
+            // 2c. PLATEAU corridor (5 pre-converted USDZ tiles).
+            //     Phase 6.1 shipped tiles are already per-building DEM-
+            //     snapped offline by `split_bldg_by_connectivity.py`,
+            //     so the runtime's job is purely envelope-based tile
+            //     placement — no sampler needed. Passing nil keeps the
+            //     corridor loader on the "place by manifest, trust the
+            //     mesh" path; the pre-snap work baked into the mesh
+            //     means each building sits on its DEM without extra
+            //     runtime cost (and without the 4 k-draw-call tax of
+            //     the Phase 6 per-building split).
+            //
+            //     Player ground-follow still works: `PlayerControlSystem`
+            //     locates the DEM via its own `TerrainComponent` query
+            //     and calls `TerrainLoader.sampleTerrainY` directly,
+            //     so it doesn't depend on a sampler closure here.
+            do {
+                let corridor = try await environmentLoader.loadDefaultCorridor(
+                    manifest: loadedManifest
+                )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
             } catch {
                 print("[SDG-Lab] PlateauEnvironmentLoader failed: \(error)")
+            }
+
+            // Sample terrain Y at (0, 0) once the terrain is in the
+            // scene. Used below for spawn Y. `nil` when terrain failed
+            // to load — spawnY stays 0 (flat-plane fallback).
+            var spawnY: Float = 0
+            if let terrain = loadedTerrain,
+               let surfaceY = TerrainLoader.sampleTerrainY(
+                 in: terrain,
+                 atWorldXZ: SIMD2<Float>(0, 0)
+               ) {
+                spawnY = surfaceY + 0.1
+                print("[SDG-Lab][p4] terrain Y at spawn = \(surfaceY); spawning player at Y=\(spawnY)")
             }
 
             // 3. Test geology outcrop. Offset 10 m east of spawn so it
@@ -356,7 +433,11 @@ public struct RootView: View {
                 capsule.addChild(camera)
                 body = capsule
             }
-            body.position = SIMD3<Float>(0, 0, 0)
+            // Spawn XZ = (0, 0) (spawn tile's envelope centre, which
+            // is the RealityKit world origin by EnvelopeManifest's
+            // construction). Spawn Y = sampled terrain surface + 10 cm
+            // when terrain loaded, else 0 for the flat-plane fallback.
+            body.position = SIMD3<Float>(0, spawnY, 0)
             content.add(body)
             sceneRefs.playerEntity = body
             playerStore.attach(playerEntity: body)

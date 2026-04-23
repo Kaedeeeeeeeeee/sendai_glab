@@ -15,6 +15,47 @@ import RealityKit
 @MainActor
 final class ToonMaterialFactoryTests: XCTestCase {
 
+    // MARK: - Hard cel variant (Phase 3)
+
+    /// Sanity: the harder cel variant returns a usable material. Same
+    /// smoke shape as the soft variant's test.
+    func testMakeHardCelMaterialDoesNotCrash() {
+        let tint = SIMD3<Float>(0.42, 0.48, 0.30)
+        let material = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: tint
+        )
+        let mesh = MeshResource.generateBox(size: 1.0)
+        let entity = ModelEntity(mesh: mesh, materials: [material])
+        XCTAssertNotNil(entity.components[ModelComponent.self])
+    }
+
+    /// The hard variant's emissive factor must be higher than the
+    /// soft variant's — that's the whole point of shipping a second
+    /// method. Regression here would mean someone silently lowered
+    /// the cel hardness back to the soft value.
+    func testHardCelEmissiveIsStrongerThanSoft() {
+        let tint = SIMD3<Float>(0.5, 0.5, 0.5)
+
+        // Compute each variant's emissive RGB via the exposed helpers.
+        // We can't inspect the PhysicallyBasedMaterial's emissive field
+        // directly across platforms (UIColor vs. NSColor components
+        // are not trivially comparable), but the helpers return the
+        // same platform colour so `.cgColor.components` works.
+        let soft = ToonMaterialFactory.emissiveTint(
+            base: tint,
+            strength: 0.7
+        )
+        let hard = ToonMaterialFactory.emissiveTintHardCel(base: tint)
+
+        let softComp = soft.cgColor.components!
+        let hardComp = hard.cgColor.components!
+
+        XCTAssertGreaterThan(
+            hardComp[0], softComp[0],
+            "hard-cel emissive R must exceed soft emissive R"
+        )
+    }
+
     // MARK: - Layer material
 
     /// The simplest possible smoke test: given a representative geology

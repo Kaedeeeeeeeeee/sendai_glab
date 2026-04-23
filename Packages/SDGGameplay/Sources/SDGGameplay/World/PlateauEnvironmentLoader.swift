@@ -53,6 +53,35 @@ public enum PlateauEnvironmentLoaderError: Error, Sendable {
     case entityLoadFailed(tile: PlateauTile, underlying: String)
 }
 
+/// How a tile's root entity should be centred after loading. Separate
+/// from placement so callers can combine "skip centring" with an
+/// envelope-supplied absolute position (Phase 4 CityGML alignment) or
+/// keep the Phase 2 bottom-snap fallback when no manifest is supplied.
+///
+/// Exposed `public` because `loadTile(_:centerMode:)` takes it as a
+/// parameter; callers that want to opt out of centring need the enum
+/// in scope.
+public enum PlateauTileCenterMode: Sendable {
+
+    /// Centre horizontally + snap lowest vertex to Y = 0. The Phase 2
+    /// Alpha default — see `EnvironmentCenterer.centerHorizontallyAndGroundY`
+    /// and `loadDefaultCorridor()`'s doc comment for the trade-offs.
+    case bottomSnap
+
+    /// Translate so the AABB centre sits at the tile's local origin.
+    /// Useful when downstream code wants to control Y placement itself
+    /// (e.g. a caller supplying its own ground plane).
+    case aabbCenter
+
+    /// Skip centring entirely. The tile keeps whatever local origin
+    /// nusamai emitted — AABB-centred in its own frame by the converter.
+    /// Paired with `EnvelopeManifest.realityKitPosition(for:)` at the
+    /// corridor level, this is the Phase 4 real-world-origin path: the
+    /// manifest supplies the absolute position and the entity's own
+    /// frame stays untouched.
+    case none
+}
+
 /// Loads PLATEAU tiles into RealityKit.
 ///
 /// ### Usage
@@ -83,7 +112,34 @@ public final class PlateauEnvironmentLoader {
     // MARK: - Public API
 
     /// Load every tile in `PlateauTile.allCases` and compose them
-    /// under a single root entity with `localCenter` offsets applied.
+    /// under a single root entity.
+    ///
+    /// ### Placement strategy
+    ///
+    /// Two modes, selected by the presence of a `manifest`:
+    ///
+    /// * **No manifest (legacy path, default)**: each tile is
+    ///   bottom-snapped via `EnvironmentCenterer.centerHorizontallyAndGroundY`
+    ///   and then offset by `tile.localCenter` — the Phase 2 Alpha
+    ///   layout that spaces tiles on a nominal 3rd-mesh grid. Kept as
+    ///   the default so existing callers (and the legacy test suite)
+    ///   stay on the same code path.
+    ///
+    /// * **With manifest (Phase 4 CityGML alignment)**: each tile's
+    ///   position comes from `manifest.realityKitPosition(for:)`,
+    ///   which resolves the real-world envelope centre relative to
+    ///   the spawn tile. Centring is skipped (`CenterMode.none`) so
+    ///   the entity keeps its nusamai-emitted local origin, and the
+    ///   manifest position is written **absolutely** — not added to
+    ///   anything else. This is the root-cause fix for the floating-
+    ///   building regression discussed in ADR-0006: with a shared
+    ///   coordinate anchor, buildings and the DEM agree on where
+    ///   things live.
+    ///
+    ///   If a tile is missing from the manifest the loader logs a
+    ///   warning and falls back to the legacy `tile.localCenter` +
+    ///   bottom-snap path for that tile only — a partial manifest
+    ///   must not blackhole the whole corridor.
     ///
     /// The root is positioned at the world origin; the spawn tile
     /// (`aobayamaCampus`) therefore sits at the world origin too.
@@ -93,27 +149,210 @@ public final class PlateauEnvironmentLoader {
     /// iPad Air's budget (Phase 2 profiling task). Switch to a
     /// `TaskGroup` later if that measurement argues otherwise.
     ///
+    /// - Parameter manifest: Optional CityGML envelope manifest.
+    ///   `nil` (the default) keeps the Phase 2 legacy layout;
+    ///   non-`nil` switches on the Phase 4 real-origin placement
+    ///   path.
     /// - Throws: First tile failure aborts the corridor load — one
     ///   missing tile means the corridor layout is incomplete, and
     ///   shipping a partial corridor hides the regression.
-    public func loadDefaultCorridor() async throws -> Entity {
+    /// Closure that returns the world-space terrain Y at a given
+    /// world XZ, or `nil` if the query is outside the terrain
+    /// footprint. Supplied by `RootView` by wrapping
+    /// `TerrainLoader.sampleTerrainY`. Injected (rather than the
+    /// loader reaching for a `TerrainLoader` directly) so tests can
+    /// substitute a deterministic fake and the layering stays clean —
+    /// `PlateauEnvironmentLoader` doesn't need to know the DEM exists
+    /// as an entity, only that someone can look up Y at an XZ.
+    public typealias TerrainHeightSampler = @MainActor (SIMD2<Float>) -> Float?
+
+    /// How far above the sampled DEM Y each tile's mesh-bottom is
+    /// parked in the Phase 5 adaptive-snap path.
+    ///
+    /// History:
+    ///   - iter 1: 2.0 (small z-fighting buffer + absorb DEM sampling
+    ///     error; too much — device showed every building floating)
+    ///   - iter 2: 2.0 → 0.0 (flush contact: buildings now visibly
+    ///     sit on the DEM. Accept the risk of occasional z-fighting
+    ///     where mesh and terrain share the same Y; re-introduce a
+    ///     sub-metre margin only if playtest shows flicker)
+    ///
+    /// Exposed `internal` so a test pin can catch silent changes.
+    internal static let adaptiveGroundSnapSkip: Float = 0.0
+
+    public func loadDefaultCorridor(
+        manifest: EnvelopeManifest? = nil,
+        terrainSampler: TerrainHeightSampler? = nil
+    ) async throws -> Entity {
         let root = Entity()
         root.name = "PlateauCorridor"
 
         for tile in PlateauTile.allCases {
-            let tileRoot = try await loadTile(tile)
-            tileRoot.position += tile.localCenter
+            let placement = Self.tilePlacement(tile: tile, manifest: manifest)
+            let tileRoot = try await loadTile(tile, centerMode: placement.centerMode)
+            // Absolute assignment in both modes. See `tilePlacement` docs
+            // and ADR-0006 for the `+=` → `=` history.
+            tileRoot.position = placement.position
+
+            // Legacy Phase 5 adaptive ground snap. Runs only when the
+            // caller supplies both a manifest and a runtime DEM sampler.
+            // Phase 6.1 mainline corridor loads omit the sampler because
+            // the Blender pipeline now bakes per-building snap into the
+            // USDZ (see `split_bldg_by_connectivity.py`), making runtime
+            // snap redundant — and actively harmful, because re-snapping
+            // a pre-aligned tile as a rigid body would undo the per-
+            // building work. The sampler path remains live for the
+            // test suite and for legacy single-mesh USDZs that have not
+            // been re-baked.
+            if let terrainSampler, manifest != nil {
+                // Phase 6: walk tile's descendants and snap each mesh
+                // entity (one per building after the
+                // `split_bldg_by_connectivity.py` offline pass). Falls
+                // back to tile-level snap when the USDZ is a legacy
+                // single-mesh (no per-building children) — keeps the
+                // Phase 5 behaviour as a fallback for stripped bundles.
+                Self.snapDescendantBuildings(
+                    tile: tileRoot,
+                    terrainSampler: terrainSampler,
+                    basementSkip: Self.adaptiveGroundSnapSkip
+                )
+            }
             root.addChild(tileRoot)
         }
 
         return root
     }
 
-    /// Load a single tile, centre it, and replace its materials with
-    /// Toon variants. The returned entity is *not* offset by
-    /// `tile.localCenter` — the caller decides whether to place it
-    /// absolutely or in a corridor layout.
-    public func loadTile(_ tile: PlateauTile) async throws -> Entity {
+    /// Shift `tile.position.y` so the entity's current world-space
+    /// visualBounds min Y lands `basementSkip` above `terrainSampler`
+    /// sampled at the tile's XZ. No-op if the sampler returns `nil`
+    /// or the tile has no bounded mesh yet — keeping the call safe
+    /// even before the full scene graph is ready.
+    ///
+    /// Exposed `internal` for a dedicated unit test; RootView is
+    /// expected to call it indirectly through `loadDefaultCorridor`.
+    @MainActor
+    internal static func adaptiveGroundSnap(
+        tile: Entity,
+        terrainSampler: TerrainHeightSampler,
+        basementSkip: Float
+    ) {
+        // Read bounds first so we can sample the DEM at the mesh's
+        // actual world XZ centre (see earlier `/root` transform note).
+        let bounds = tile.visualBounds(relativeTo: nil)
+        guard !bounds.isEmpty else { return }
+        let xz = SIMD2<Float>(bounds.center.x, bounds.center.z)
+        guard let demY = terrainSampler(xz) else { return }
+
+        // Snap on the AABB **centre** (not min). Rationale from the
+        // first Phase 5 device test: PLATEAU LOD2 tiles come out of
+        // nusamai with ~150 m of internal Y range (hilltop buildings +
+        // valley-floor basements / ground surfaces all in the same
+        // GLB). Anchoring `bounds.min.y` at DEM puts the entire mesh
+        // *above* the DEM — every building flies 0…150 m up. Anchoring
+        // the **centre** instead distributes the tile's Y range around
+        // the DEM level: roughly half the mesh peeks above the
+        // terrain surface (the visible buildings), the lower half
+        // submerges below the DEM mesh (where the terrain mesh
+        // naturally occludes it — no visual artefact unless the
+        // player walks under).
+        //
+        // This matches what a player standing on the terrain expects:
+        // buildings on the hill above them, distant buildings receding
+        // into lower valleys. Residual misalignment inside a tile is
+        // capped at ~±75 m (half the tile's Y range) and only matters
+        // for outlier geometry — phase 6 per-building re-projection
+        // is the full fix.
+        //
+        // `basementSkip` (despite the historical name) now shifts the
+        // centre-anchored tile a few metres UP from the DEM so the
+        // visible building cluster reads as "on top of" the terrain
+        // rather than straddling it.
+        let currentCentreY = bounds.center.y
+        let delta = (demY + basementSkip) - currentCentreY
+        tile.position.y += delta
+        // No diagnostic print: Phase 6 calls this once per building
+        // (~1000 times per tile), which would flood Console.app.
+    }
+
+    /// Find every descendant with a `ModelComponent` (each represents
+    /// one PLATEAU building after the Phase 6 offline split pipeline)
+    /// and apply `adaptiveGroundSnap` to it independently. When the
+    /// tile has no mesh-bearing descendants — i.e. it's a legacy
+    /// single-mesh USDZ from before the split — fall back to snapping
+    /// the tile entity itself.
+    ///
+    /// Returns the number of descendants snapped (0 for the
+    /// fallback). Exposed `internal` for tests.
+    ///
+    /// ### Why stop descent on first ModelComponent
+    ///
+    /// For a hierarchy root → building → mesh_part, we want to snap
+    /// the *building* (so all its parts move together), not each
+    /// mesh part. Stopping descent on the first `ModelComponent`-
+    /// bearing node along each branch is the right policy as long
+    /// as buildings are at most one `ModelComponent` layer deep —
+    /// which is how Blender's USD export lays out the split tiles.
+    @MainActor
+    @discardableResult
+    internal static func snapDescendantBuildings(
+        tile: Entity,
+        terrainSampler: TerrainHeightSampler,
+        basementSkip: Float
+    ) -> Int {
+        // Collect the top-most mesh-bearing descendants. Iterative
+        // DFS, mirroring `applyToonMaterial`'s walk pattern.
+        var buildings: [Entity] = []
+        var stack: [Entity] = [tile]
+        while let current = stack.popLast() {
+            if current.components[ModelComponent.self] != nil {
+                buildings.append(current)
+                // Don't descend into this subtree — snapping the
+                // parent moves the children automatically.
+                continue
+            }
+            stack.append(contentsOf: current.children)
+        }
+
+        guard !buildings.isEmpty else {
+            // Legacy single-mesh USDZ (pre-split) — the tile root
+            // itself has no ModelComponent and no mesh-bearing
+            // descendants visible to us. Snap the tile as a rigid
+            // body, Phase-5 style.
+            adaptiveGroundSnap(
+                tile: tile,
+                terrainSampler: terrainSampler,
+                basementSkip: basementSkip
+            )
+            return 0
+        }
+
+        for building in buildings {
+            adaptiveGroundSnap(
+                tile: building,
+                terrainSampler: terrainSampler,
+                basementSkip: basementSkip
+            )
+        }
+        return buildings.count
+    }
+
+    /// Load a single tile and replace its materials with Toon variants.
+    /// The returned entity is *not* offset by `tile.localCenter` — the
+    /// caller decides whether to place it absolutely or in a corridor
+    /// layout.
+    ///
+    /// - Parameter tile: The PLATEAU tile to load.
+    /// - Parameter centerMode: How to centre the loaded entity before
+    ///   returning. Defaults to `.bottomSnap` — the Phase 2 Alpha
+    ///   behaviour, kept as the default so existing callers don't have
+    ///   to opt in. Phase 4 callers that place tiles via an envelope
+    ///   manifest pass `.none` so the entity keeps its nusamai-emitted
+    ///   local origin.
+    public func loadTile(
+        _ tile: PlateauTile,
+        centerMode: PlateauTileCenterMode = .bottomSnap
+    ) async throws -> Entity {
         // 1. Convert (or read the cache / pre-shipped USDZ).
         let resourceURL: URL
         do {
@@ -142,19 +381,79 @@ public final class PlateauEnvironmentLoader {
             )
         }
 
-        // 3. Centre horizontally + snap lowest vertex to Y=0. PLATEAU
+        // 3. Centre according to the caller's chosen mode. PLATEAU
         //    nusamai output keeps real-world geographic elevation, so
         //    AABB-centre alignment puts half the tile underground.
         //    Bottom-snap keeps buildings on the ground plane while
         //    hill-top buildings remain elevated relative to valley
-        //    ones — visually honest until Phase 2 Beta brings DEM.
-        EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
+        //    ones — visually honest when no envelope manifest is
+        //    supplied. The Phase 4 envelope path skips centring
+        //    entirely and relies on the manifest's real-world origin
+        //    for absolute placement.
+        switch centerMode {
+        case .bottomSnap:
+            EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
+        case .aabbCenter:
+            EnvironmentCenterer.centerAtOrigin(entity)
+        case .none:
+            break
+        }
 
         // 4. Toonify.
         let palette = Self.warmToonColour(for: tile)
         Self.applyToonMaterial(toDescendantsOf: entity, baseColor: palette)
 
         return entity
+    }
+
+    // MARK: - Placement helper
+
+    /// Compute a tile's final position and centring mode given an
+    /// optional envelope manifest. Pure function — no scene graph
+    /// access — so the placement policy is unit-testable without
+    /// loading a USDZ.
+    ///
+    /// Semantics:
+    /// * `manifest == nil` → legacy path: `(tile.localCenter, .bottomSnap)`.
+    /// * `manifest` supplies the tile id → Phase 4 path:
+    ///   `(manifest.realityKitPosition(for: tile.rawValue)!, .none)`.
+    /// * `manifest` omits the tile id → partial-manifest fallback:
+    ///   `(tile.localCenter, .bottomSnap)`, plus a warning log so
+    ///   the gap is visible during bring-up.
+    ///
+    /// Exposed `internal` for the test suite. Returning a struct with
+    /// named fields (rather than a tuple) keeps the call sites readable
+    /// and makes adding a third axis — e.g. per-tile scale overrides —
+    /// a non-breaking change.
+    internal static func tilePlacement(
+        tile: PlateauTile,
+        manifest: EnvelopeManifest?
+    ) -> (position: SIMD3<Float>, centerMode: PlateauTileCenterMode) {
+        guard let manifest else {
+            return (tile.localCenter, .bottomSnap)
+        }
+        if let envelopePosition = manifest.realityKitPosition(for: tile.rawValue) {
+            // Phase 6.1: tiles are pre-snapped offline by
+            // `split_bldg_by_connectivity.py` (each building's foundation
+            // already sits on the DEM surface inside the baked USDZ).
+            // Runtime placement is therefore pure envelope positioning —
+            // no additional lift. The old `envelopeTileGroundLift`
+            // constant (5→10→15→25→20→18 across Phase 4 iterations) was
+            // a runtime compensation for the missing offline snap; with
+            // Phase 6.1 it turned into pure 18 m float and caused the
+            // "still flying" regression after the offline pipeline
+            // landed. See ADR-0008 § Phase 6.1 for the offline contract.
+            return (envelopePosition, .none)
+        }
+        // Partial manifest — fall back per-tile so the rest of the
+        // corridor can still load. Visible as a warning so playtest
+        // bug reports of "one tile in the wrong place" lead back to
+        // the pipeline output rather than the runtime.
+        print(
+            "[SDG-Lab][plateau] envelope manifest missing tile id \(tile.rawValue); " +
+            "falling back to localCenter + bottom-snap"
+        )
+        return (tile.localCenter, .bottomSnap)
     }
 
     // MARK: - Materials
@@ -213,9 +512,18 @@ public final class PlateauEnvironmentLoader {
         toDescendantsOf root: Entity,
         baseColor: SIMD3<Float>
     ) {
-        let material = ToonMaterialFactory.makeLayerMaterial(
-            baseColor: baseColor,
-            strength: 0.7
+        // Phase 3 Toon upgrade: buildings now use the "harder cel"
+        // variant which pushes emissive higher and removes residual
+        // specular, so the PLATEAU facades read as flat cartoon
+        // volumes rather than realistic-lit buildings with a tint.
+        // Geology layers inside the outcrop keep the softer
+        // `makeLayerMaterial` so the drillable rock stays visually
+        // distinct from the surrounding city.
+        //
+        // True NdotL step-ramp (ADR-0004 scheme A) is still follow-up
+        // work pending Reality Composer Pro authoring.
+        let material = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: baseColor
         )
 
         // Iterative depth-first walk. Recursing into the built-in

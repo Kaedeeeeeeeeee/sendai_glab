@@ -166,19 +166,147 @@
 
 **合計 394 tests / 0 failure**(SDGCore 22 + SDGGameplay 303 + SDGPlatform 20 + SDGUI 49)
 
-### Phase 3 候補(未着手、優先順位は f.shera と決めていない)
+### Phase 3 Quest Chain — 完了(2026-04-22、PR #10)
 
-**次の着手**(2026-04-22 Audio fix 直後に選択):
-→ Quest 自動 chain + DialogueFinished → objective 自動完了ブリッジ
-   (branch `feat/phase-3-quest-chain`、Phase 2 Beta の半実装を完成)
+- [x] `StoryProgressionMap.builtIn`:10 条 dialogue→objective + 12 条 quest→successor
+- [x] `StoryProgressionBridge`:DialogueFinished + QuestCompleted 購読 → QuestStore.intent
+- [x] RootView:旧 hand-wired dialogueFinishedToken 撤去、bootstrap で q.lab.intro
+      を 1 回 auto-start(冪等)
+- [x] 14 tests 追加(map 整合性 6 + bridge 挙動 8)
 
-残り候補(次回以降):
-1. PLATEAU DEM(terrain)統合 — 浮遊建物の根本修正
-2. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
-3. 灾害イベント(地震 + 洪水)— PLATEAU hazard layer 利用
-4. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
-5. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
-6. 真の薄片写真(f.shera 研究室素材)
+**合計 408 tests / 0 failure**(SDGCore 22 + SDGGameplay 317 + SDGPlatform 20 + SDGUI 49)
+
+### Phase 3 PLATEAU DEM Terrain — **部分採用 / runtime は Phase 4 に延期**(2026-04-23、PR #11)
+
+f.shera 真機テストで 4 種類の tile alignment 戦略(flat / absolute-lift / additive-lift /
+terrain-shift)すべて視覚的に失敗。**真因は nusamai 0.1.0 が各 GLB の real-world
+Y origin を捨てる**こと — ランタイムにだけ触れる修正では本質的に解けない。
+
+ADR-0006 に postmortem と Phase 4 計画を記録。本 PR #11 では:
+
+**採用**:
+- [x] オフライン DEM 変換管線(`Tools/plateau-pipeline/dem_to_terrain_usdz.py` +
+      `convert_terrain_dem.sh`): nusamai → Blender 過激 decimate
+      (1.7M → 30K 三角形、`remove_doubles` + orphan-vert purge で 41MB → 1.3MB)
+- [x] `ToonMaterialFactory.makeHardCelMaterial`:硬めの cel 見た目
+      (emissive floor 35% → 60%、specular/clearcoat ゼロ)。建物と任意の地形両方で利用可。
+- [x] ADR-0006: DEM alignment を Phase 4 に延期する判断と方案 A 計画
+
+**延期(ADR-0006 の対応作業、Phase 4 専用 PR)**:
+- [ ] CityGML `<gml:Envelope>` パーサ(Swift or Python) → 各 GLB の real-world 原点復元
+- [ ] 復元した原点でランタイム配置: `entity.position = realWorldOrigin - spawnOrigin`
+- [ ] `TerrainLoader.swift` + `Terrain_Sendai_574036_05.usdz` は Phase 4 で再投入
+- [ ] 見積:1〜1.5 日専用 PR
+
+**既知の教訓**:
+1. nusamai 0.1.0 の gltf sink は各ファイルを自前の AABB 中心に移す → 座標は失われる
+2. 1km PLATEAU 建物 tile は real-world で 150m 垂直跨度を持つ場合がある(青葉山)。
+   bottom-snap は "最低点 = Y=0" なので、その tile の建物全てが地形相対で +150m 浮く
+3. ランタイム側の tile-level rigid shift では上記 2 つを補正できない
+4. 「諦める判断」はコストを抑える上で必要 — 4 次試行した後明らかだった
+
+### Phase 6.1 per-building snap 移到 Blender 离线 — 完了(2026-04-23)
+
+Phase 6 run-time per-building snap 真機有 FPS drop(4443 draw call)。
+→ Phase 6.1: Blender 里 split → **per-building DEM snap** → **merge 回单 mesh** → 导出。
+Runtime 见单 mesh per tile,5 draw call 总。精度保留,FPS 恢复。
+
+- [x] `split_bldg_by_connectivity.py`:加 `--dem-usdz` / `--envelope-json` / `--tile-id` / `--dem-tile-id` 参数
+- [x] Blender 端 `Object.ray_cast` 采 DEM,coord 映射:`dem_X = bldg_X + (bldg_env.east - dem_env.east)` 等
+- [x] 单个建筑 snap 完之后 `bpy.ops.object.join()` 回单 mesh
+- [x] 5 tile 重新生成:5.8 MB 总(3 栋建筑在 DEM 覆盖边界外、留 nusamai 原 Y,可接受)
+- [x] RootView 不再传 `terrainSampler` 给 `loadDefaultCorridor`(tile 已 pre-snap、runtime 不该再移)
+- [x] ADR-0008 加 Phase 6.1 addendum
+
+**合計 332 tests / 0 failures**(SDGGameplay 332)
+
+### Phase 6.1 仕上げ — 完了(2026-04-23、commits `a59f28b` / `9e4fdb7` / `0d44a2d`)
+
+Phase 6.1 初版は真機で依然「建物が飛ぶ」症状。3 回の iter で根治:
+
+- [x] **iter 1 (`a59f28b`)** — foundation-snap を centroid → 5th pct → 25th pct に変更。
+      LOD2 の basement skirt(真の 1 階より 1〜5m 下に垂れてる ground-surface
+      polygon)を飛び越えて本当の 1 階壁頂点をアンカーにする狙い。
+      副次的に vertex 数が少ない単純 cube(8〜12 verts)だと 25% も strict min と
+      同じになるが、複雑建物では差が出る。
+- [x] **iter 2 (`9e4fdb7`) — 真因修正**:残ってた `envelopeTileGroundLift = 18.0`
+      を削除。これは Phase 4 iter 2〜9 で「runtime snap が足りない分を定数 lift で
+      誤魔化す」ため入れた値で、Phase 6.1 Blender オフラインが完璧に snap して
+      以降は **純粋な 18m 浮き**になってた。診断スクリプトで「ベイク済み USDZ は
+      全 building が DEM に 0.00m 誤差で載ってる」を確認 → ランタイムに原因を
+      特定 → `tilePlacement` の `+=` を削除。
+- [x] **iter 3 (`0d44a2d`) — 坂面対策**:平地は OK になったが青葉山 / 川内の坂面で
+      建物が剛体故に片側浮き。全 building foundation を DEM より **0.75m 下**に
+      沈める `SLOPE_SINK_M = 0.75` を Blender 側に追加。坂上側の埋まり(不可視、
+      terrain occlude 頼り)と引き換えに坂下側の浮きを sub-metre に縮小。
+
+**教訓**:
+1. 数学の方向性を確認せず直感で percentile を振るとハマる。delta 式が
+   `target - anchor` なら anchor が低いほど shift UP が大きくなる(直感の逆)。
+2. 「runtime 側をキレイにする」類の移行は、**過去の iter で入れた定数が残ってないか**
+   必ず grep する。今回の 18m lift は 3 ヶ月前の Phase 4 の残滓だった。
+3. **剛体 building + 坂面**は per-vertex 変形しない限り本質解なし。
+   SLOPE_SINK_M で誤魔化すのが現実解。per-building slope-aware dynamic sink
+   は将来最適化として保留(ray_cast 4 方向勾配取れる)。
+
+**合計 415 tests / 0 failures**(SDGCore 22 + SDGGameplay 324 + SDGPlatform 20 + SDGUI 49)
+
+### Phase 6 PLATEAU per-building DEM snap — 完了(2026-04-23、同 PR #12 branch)
+
+Phase 5 per-tile rigid-body snap で tile 内部 150m 高差に対応できず、真機で一部建筑飞天/埋地。
+→ Phase 6: 各 tile の mesh を Blender で**建物ごとに分割**、RealityKit 加载時各建筑独立 snap。
+
+- [x] `Tools/plateau-pipeline/split_bldg_by_connectivity.py` — weld 1mm → LOOSE separate → multi-object USDZ
+- [x] `Tools/plateau-pipeline/split_all_bldgs.sh` batch driver
+- [x] 5 tile 再生成:275 / 277 / 1302 / 914 / 1675 = **4443 栋建筑**、合計 6.5 MB
+- [x] `PlateauEnvironmentLoader.snapDescendantBuildings` — DFS walk、各 ModelComponent 実体を独立 snap
+- [x] 3 新 tests、ADR-0008 記録
+- [x] (后被 Phase 6.1 覆盖:runtime snap 搬到 Blender 离线 + merge,precision 保留 FPS 恢复)
+
+**合計 332 tests / 0 failures**(SDGGameplay 332)
+
+### (旧) Phase 4 PLATEAU 真対齐 — 完了(2026-04-23、branch `feat/phase-4-citygml-envelope-alignment`)
+
+**ADR-0006 で延期していた DEM 整合を root-cause で解決**。
+
+- [x] `Tools/plateau-pipeline/extract_envelopes.py` + `extract_bldg_gmls.sh`
+      — 各 CityGML の `<gml:Envelope>` を解析、pyproj で EPSG:6697→6677 投影、
+      sidecar JSON に出力
+- [x] `Resources/Environment/plateau_envelopes.json`(1.4 KB、6 tiles)
+      — 5 bldg + 1 dem の real-world 原点を ship
+- [x] `Packages/SDGGameplay/.../World/EnvelopeManifest.swift`
+      — `PlateauEnvelope` 構造体 + manifest loader + `realityKitPosition(for:)`
+      (EPSG:6677 → RK Y-up 座標変換内包)
+- [x] `TerrainLoader.swift` 復活 + manifest 統合(envelope 時は
+      `centerHorizontallyAndGroundY` スキップ)
+- [x] `PlateauEnvironmentLoader.loadDefaultCorridor(manifest:)` — manifest
+      あれば各 tile を `realityKitPosition(tile.rawValue)` で絶対配置、
+      `PlateauTileCenterMode.none` で centering skip、一部欠損時は legacy fallback
+- [x] RootView:bootstrap で manifest 読み込み → 両 loader に注入 →
+      spawn Y = terrain 表面 Y + 0.1m
+- [x] 5 waves 並列 subagent(Python + Swift model 並列 → Terrain + BldgLoader 並列 → main integration)
+- [x] ADR-0007: CityGML envelope alignment
+- [x] 17 新規 tests(EnvelopeManifest 9 + TerrainLoader 5 + EnvLoader 3)
+
+**合計 322 tests / 0 failures**(SDGCore 22 + SDGGameplay **322** + SDGPlatform 20 + SDGUI 49)
+
+**真機実測予定**:f.shera 次回確認。期待:青葉山建築群が山上、川内建築群が谷、spawn で視差感あり。残余 1-5m ズレは DEM 粒度(30m)由来で許容。
+
+### 訂正(ADR-0007 途中で発見)
+
+- **EPSG:6677 は Zone IX、ではなく(仮)Zone X** — 当初計画は X と書いていたが
+  実際は Zone IX(原点 36°N / 139°50'E)。仙台は原点から ~266 km 離れてる。
+  Python script の sanity check 閾値 500km に緩和、ADR-0007 に明記。
+
+### Phase 3 残り候補(次回以降)
+
+1. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
+2. 灾害イベント(地震 + 洪水)— **Phase 4〜6.1 対齐済みなので取り組める** 🎉
+3. Meshy image-to-3d で chibi 再生成(f.shera の concept art 待ち)
+4. Vehicle pilot UX(入力をどう joystick から Vehicle.intent(.pilot) に回すか)
+5. 真の薄片写真(f.shera 研究室素材)
+6. ~~per-building DEM re-projection~~ — **Phase 6.1 で完了**
+7. PR #12 をマージ(Phase 4〜6.1 全部入り、真機視覚 OK)
 
 ## よく参照するパス
 

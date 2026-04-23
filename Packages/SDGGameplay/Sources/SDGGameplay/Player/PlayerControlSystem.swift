@@ -49,15 +49,16 @@ public final class PlayerControlSystem: System {
     /// want `.after(PhysicsSystem.self)` here.
     public static let dependencies: [SystemDependency] = []
 
-    /// Forward speed at full-stick, metres per second. Phase 2 Alpha
-    /// bumped from 2.0 → 8.0 after a real-device playtest: PLATEAU
-    /// tiles are ~1 km square, so the original "comfortable walking"
-    /// speed left the player marooned in the middle of the corridor
-    /// unable to reach the buildings visible in the distance. 8 m/s
-    /// ≈ slow jogging, still slow enough to read passing geology,
-    /// fast enough to traverse the 5 km走廊 in a few minutes. Phase 3
-    /// will add a sprint button so this default can come back down.
-    public static let moveSpeed: Float = 8.0
+    /// Forward speed at full-stick, metres per second. Phase 4 QA
+    /// speed — must be reset to 8 m/s (ship default) once alignment
+    /// verification is done.
+    ///
+    /// History:
+    ///   - Phase 2 Alpha: 2.0 → 8.0 (walking too slow for 1 km tiles)
+    ///   - Phase 4 iter 3: 8.0 → 800.0 (100×, too fast on device)
+    ///   - Phase 4 iter 4: 800.0 → 80.0 (10× — fast enough to sweep
+    ///     the corridor, slow enough to actually see buildings)
+    public static let moveSpeed: Float = 80.0
 
     /// Maximum absolute pitch, radians. ±80° ≈ ±1.396 rad. Keeps the
     /// camera from flipping past vertical.
@@ -67,6 +68,11 @@ public final class PlayerControlSystem: System {
     /// the predicate never changes and the query value is cheap to
     /// reuse.
     private let query: EntityQuery
+
+    /// Terrain-entity query; every frame we resolve this to the
+    /// first match (there's exactly one DEM terrain in Phase 4) and
+    /// sample its mesh to ground-follow the player.
+    private let terrainQuery: EntityQuery
 
     /// Accumulated pitch across frames. Lives on the System, not the
     /// component, because pitch is conceptually part of the camera's
@@ -83,11 +89,26 @@ public final class PlayerControlSystem: System {
             where: .has(PlayerComponent.self)
                 && .has(PlayerInputComponent.self)
         )
+        self.terrainQuery = EntityQuery(
+            where: .has(TerrainComponent.self)
+        )
     }
 
     public func update(context: SceneUpdateContext) {
         let deltaTime = Float(context.deltaTime)
         guard deltaTime > 0 else { return }
+
+        // Resolve the terrain entity once for all players in this
+        // frame. In Phase 4 there's exactly one DEM terrain, so the
+        // first match is the one we want.
+        var terrainEntity: Entity?
+        for entity in context.entities(
+            matching: terrainQuery,
+            updatingSystemWhen: .rendering
+        ) {
+            terrainEntity = entity
+            break
+        }
 
         // `.rendering` = "call us every visible frame", the right
         // cadence for player control. The alternative `.simulating`
@@ -97,7 +118,60 @@ public final class PlayerControlSystem: System {
             updatingSystemWhen: .rendering
         ) {
             applyInput(to: entity, deltaTime: deltaTime)
+            if let terrain = terrainEntity {
+                snapToGround(player: entity, terrain: terrain)
+            }
         }
+    }
+
+    /// Ground-follow the player by sampling the terrain mesh directly.
+    ///
+    /// ### Why not `Scene.raycast`
+    ///
+    /// The first Phase 4 iteration used `context.scene.raycast` against
+    /// the `CollisionComponent` that `TerrainLoader` installs via
+    /// `generateCollisionShapes(recursive:)`. Device playtest found the
+    /// raycast reliably returned no hits — the player stayed at spawn
+    /// Y and flew through the air as they walked. Rather than debug
+    /// the collision-world / mask interaction, we fall back to the
+    /// mesh-vertex sampler that already proved reliable in Phase 3's
+    /// spawn-Y anchoring (`TerrainLoader.sampleTerrainY`).
+    ///
+    /// ### Cost
+    ///
+    /// ~15 K verts after decimation, ~0.2 ms per call on M-series.
+    /// Called once per player per frame; fine at 60 / 120 Hz. If we
+    /// ever need tighter perf, a BVH over the DEM verts would drop
+    /// this to O(log n); not worth the complexity at Phase 4.
+    private func snapToGround(player: Entity, terrain: Entity) {
+        // `sampleTerrainY` is `@MainActor` because it reads RealityKit
+        // entity transforms + ModelComponent. RealityKit drives
+        // System.update on MainActor in practice, but the Swift 6
+        // type system doesn't know that, so the call needs an
+        // explicit `assumeIsolated`. `CharacterIdleFloatSystem`
+        // sidesteps this by being annotated `@MainActor` on the
+        // class; doing the same here would cascade to every existing
+        // caller of `PlayerControlSystem` (tests, orchestrator hookup)
+        // and the extra scope isn't worth it for one method call.
+        let worldPos = player.position(relativeTo: nil)
+        let terrainY = MainActor.assumeIsolated {
+            TerrainLoader.sampleTerrainY(
+                in: terrain,
+                atWorldXZ: SIMD2<Float>(worldPos.x, worldPos.z)
+            )
+        }
+        guard let terrainY else { return }
+        // Player rig has feet at entity-local Y = 0, camera head at
+        // local Y = 1.5. `sampleTerrainY` now does triangle-barycentric
+        // interpolation, so the sampled value equals the actual mesh
+        // surface Y under the player — no vertex-step error to absorb.
+        // A 10 cm margin is enough to prevent z-fighting between feet
+        // and the terrain material; anything larger would float the
+        // character visibly, which matters for future multiplayer where
+        // other clients see this rig's world Y.
+        var newPos = player.position
+        newPos.y = terrainY + 0.1
+        player.position = newPos
     }
 
     // MARK: - Per-entity work
