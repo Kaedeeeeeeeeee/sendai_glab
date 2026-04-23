@@ -238,39 +238,47 @@ public final class PlateauEnvironmentLoader {
         basementSkip: Float
     ) {
         // Read bounds first so we can sample the DEM at the mesh's
-        // actual world XZ centre, not the tile entity's root position.
-        //
-        // Why: the USDZs we ship (Blender-exported with `/root` prim)
-        // can carry a non-identity transform on the intermediate
-        // `/root` node, so the mesh's centre-of-mass in world space
-        // isn't always equal to `tile.position.xz`. Sampling the DEM
-        // at the root position in that case queries terrain under an
-        // offset location — device feedback showed the symptom as
-        // "all buildings flying at different heights" because the
-        // per-tile offset is different per tile. Reading `bounds.center`
-        // goes through the full transform chain and returns the mesh's
-        // true world centre, fixing the cross-tile variance.
+        // actual world XZ centre (see earlier `/root` transform note).
         let bounds = tile.visualBounds(relativeTo: nil)
         guard !bounds.isEmpty else { return }
         let xz = SIMD2<Float>(bounds.center.x, bounds.center.z)
         guard let demY = terrainSampler(xz) else { return }
-        let currentBottomY = bounds.min.y
-        // Target: bounds.min.y == demY + basementSkip in world space.
-        // Shifting `position.y` by the delta lands the mesh bottom
-        // exactly there because the position translation carries
-        // through the whole subtree.
-        let delta = (demY + basementSkip) - currentBottomY
+
+        // Snap on the AABB **centre** (not min). Rationale from the
+        // first Phase 5 device test: PLATEAU LOD2 tiles come out of
+        // nusamai with ~150 m of internal Y range (hilltop buildings +
+        // valley-floor basements / ground surfaces all in the same
+        // GLB). Anchoring `bounds.min.y` at DEM puts the entire mesh
+        // *above* the DEM — every building flies 0…150 m up. Anchoring
+        // the **centre** instead distributes the tile's Y range around
+        // the DEM level: roughly half the mesh peeks above the
+        // terrain surface (the visible buildings), the lower half
+        // submerges below the DEM mesh (where the terrain mesh
+        // naturally occludes it — no visual artefact unless the
+        // player walks under).
+        //
+        // This matches what a player standing on the terrain expects:
+        // buildings on the hill above them, distant buildings receding
+        // into lower valleys. Residual misalignment inside a tile is
+        // capped at ~±75 m (half the tile's Y range) and only matters
+        // for outlier geometry — phase 6 per-building re-projection
+        // is the full fix.
+        //
+        // `basementSkip` (despite the historical name) now shifts the
+        // centre-anchored tile a few metres UP from the DEM so the
+        // visible building cluster reads as "on top of" the terrain
+        // rather than straddling it.
+        let currentCentreY = bounds.center.y
+        let delta = (demY + basementSkip) - currentCentreY
         tile.position.y += delta
 
-        // Diagnostic breadcrumb — the bug that prompted the
-        // `tile.position → bounds.center` switch would have been
-        // immediately obvious with these numbers in hand. Keeping the
-        // log through Phase 5 QA; remove for ship.
+        // Diagnostic breadcrumb. Keep through Phase 5 QA; delete for
+        // ship. Prints are a few per corridor-load — not hot-path.
         print(
             "[SDG-Lab][p5] snap tile name=\(tile.name) " +
             "pos=(\(tile.position.x), \(tile.position.z)) " +
-            "center=(\(bounds.center.x), \(bounds.center.z)) " +
-            "bottomY=\(currentBottomY) → demY=\(demY) delta=\(delta) " +
+            "centerXZ=(\(bounds.center.x), \(bounds.center.z)) " +
+            "centerY=\(currentCentreY) → demY=\(demY) delta=\(delta) " +
             "newPosY=\(tile.position.y)"
         )
     }

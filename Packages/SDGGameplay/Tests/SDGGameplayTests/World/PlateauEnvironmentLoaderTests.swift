@@ -341,13 +341,14 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
         return entity
     }
 
-    /// Adaptive snap shifts the tile so its bounds.min.y sits exactly
-    /// `basementSkip` above the sampled DEM Y. This is the Phase 5
-    /// replacement for the Phase 4 `envelopeTileGroundLift` global
-    /// constant — per-tile, data-driven. Uses a non-default skip to
-    /// prove the parameter is respected.
-    func testAdaptiveGroundSnapLandsMeshBottomOnDemPlusSkip() {
-        // A 20 m cube at y=100 → world bounds.min.y = 90, max.y = 110
+    /// Adaptive snap shifts the tile so its AABB **centre** sits at
+    /// `demY + basementSkip`. The Phase 5 first-device-test revealed
+    /// that snapping `bounds.min.y` to DEM floated the entire tile
+    /// above the terrain (PLATEAU tiles are ~150 m tall), so we
+    /// switched to centre-anchoring; half the mesh now peeks above
+    /// terrain, half submerges below (occluded by the terrain mesh).
+    func testAdaptiveGroundSnapLandsMeshCentreAtDemPlusSkip() {
+        // A 20 m cube at y=100 → world bounds centre = 100.
         let tile = makeCubeEntity(at: 100)
         // Sampler returns Y = 50 at any XZ.
         let sampler: PlateauEnvironmentLoader.TerrainHeightSampler = { _ in 50 }
@@ -356,11 +357,11 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
             terrainSampler: sampler,
             basementSkip: 2.0
         )
-        // After snap: mesh bottom at demY + skip = 50 + 2 = 52.
-        // Cube is 20 m tall centred on position.y, so position.y = 52 + 10 = 62.
-        XCTAssertEqual(tile.position.y, 62.0, accuracy: 1e-3)
+        // After snap: mesh centre at demY + skip = 52.
+        // Cube is symmetric about position.y, so position.y = 52.
+        XCTAssertEqual(tile.position.y, 52.0, accuracy: 1e-3)
         let bounds = tile.visualBounds(relativeTo: nil)
-        XCTAssertEqual(bounds.min.y, 52.0, accuracy: 1e-3)
+        XCTAssertEqual(bounds.center.y, 52.0, accuracy: 1e-3)
     }
 
     /// When the sampler returns nil (query outside terrain footprint),
