@@ -124,7 +124,26 @@ public final class PlayerControlSystem: System {
         }
     }
 
+    /// Indoor floor Y in lab-local coordinates. Phase 9 Part F pins
+    /// the lab floor at world Y = 0 (the lab root lives at world Y = 0
+    /// when enabled, see `RootView`'s `isEnabled`-swap integration),
+    /// so the player's feet sit at Y = 0 plus the same 10 cm margin
+    /// we use outdoors. Exposed `internal` so tests can reference the
+    /// value without duplicating the constant.
+    internal static let indoorFloorY: Float = 0.0
+
     /// Ground-follow the player by sampling the terrain mesh directly.
+    ///
+    /// ### Phase 9 Part F — indoor branch
+    ///
+    /// The player may carry a `LocationComponent(.indoor(_))` when
+    /// they are inside the procedural lab (see `InteriorSceneBuilder`).
+    /// Indoor sampling short-circuits the terrain lookup and pins the
+    /// player's feet to `indoorFloorY` + the standard 10 cm margin.
+    /// The DEM is usually a long way below (or way above) the lab
+    /// origin and would fling the player out of the room if we kept
+    /// snapping to it. Skipping the sampler is cheaper than trying to
+    /// build an "indoor DEM" for one box room.
     ///
     /// ### Why not `Scene.raycast`
     ///
@@ -144,6 +163,19 @@ public final class PlayerControlSystem: System {
     /// ever need tighter perf, a BVH over the DEM verts would drop
     /// this to O(log n); not worth the complexity at Phase 4.
     private func snapToGround(player: Entity, terrain: Entity) {
+        // Phase 9 Part F: indoor short-circuit. An entity carrying
+        // `LocationComponent(.indoor(_))` sits on a fixed floor, not
+        // on the DEM. Outdoor is the implicit default if the
+        // component is missing so tests and legacy setups keep the
+        // pre-Phase-9 behaviour.
+        if let location = player.components[LocationComponent.self],
+           case .indoor = location.kind {
+            var newPos = player.position
+            newPos.y = Self.indoorFloorY + 0.1
+            player.position = newPos
+            return
+        }
+
         // `sampleTerrainY` is `@MainActor` because it reads RealityKit
         // entity transforms + ModelComponent. RealityKit drives
         // System.update on MainActor in practice, but the Swift 6
