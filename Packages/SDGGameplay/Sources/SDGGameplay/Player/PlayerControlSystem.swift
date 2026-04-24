@@ -200,25 +200,62 @@ public final class PlayerControlSystem: System {
         // the player's capsule volume still registers.
         let rayLength = distance + Self.wallRadius
 
+        // `query: .all` + manual filtering beats `query: .nearest`
+        // here because the nearest hit is almost always the terrain
+        // slope ahead of the player (Phase 4 TerrainLoader installs
+        // collision on the DEM mesh). Walking on Aobayama's 150 m
+        // hillside makes that hit trigger at ~0 m every frame and
+        // freezes the player in place. Filter it — and outcrop /
+        // sample hits too — before picking a "real wall" hit.
         let hits = scene.raycast(
             origin: origin,
             direction: direction,
             length: rayLength,
-            query: .nearest
+            query: .all
         )
-        guard let hit = hits.first else { return }
-        // `hit.distance` is the distance from the origin to the
-        // surface along the direction. Back it off by wallRadius so
-        // the player doesn't visually clip the wall.
+        let wallHit = hits.first(where: { hit in
+            // Skip terrain: entities carrying `TerrainComponent` OR
+            // any ancestor that does. The DEM mesh itself is the
+            // one tagged in Phase 4.
+            if Self.isTerrainHit(hit.entity) { return false }
+            // Skip anything inside the sample container (spawned
+            // sample cores live ~0.8 m from the player and would
+            // otherwise wall-block their own source).
+            if Self.isSampleContainerHit(hit.entity) { return false }
+            return true
+        })
+        guard let hit = wallHit else { return }
         let safeDistance = max(0, hit.distance - Self.wallRadius)
-        // Preserve the Y delta that `applyInput` may have written
-        // (none today — feet Y is snapped by `snapToGround` — but
-        // future physics might change that).
         player.position = SIMD3<Float>(
             oldPosition.x + direction.x * safeDistance,
             newPosition.y,
             oldPosition.z + direction.z * safeDistance
         )
+    }
+
+    /// `true` if `entity` or any ancestor carries `TerrainComponent`.
+    /// Walks up the parent chain because `generateCollisionShapes(
+    /// recursive: true)` in TerrainLoader may attach a shape to a
+    /// child mesh entity even though the root holds the marker.
+    private static func isTerrainHit(_ entity: Entity) -> Bool {
+        var current: Entity? = entity
+        while let e = current {
+            if e.components[TerrainComponent.self] != nil { return true }
+            current = e.parent
+        }
+        return false
+    }
+
+    /// `true` if `entity` lives under the SampleContainer entity.
+    /// Sample cores are spawned ~80 cm from the player, so they'd
+    /// otherwise wall-block the player's own harvest.
+    private static func isSampleContainerHit(_ entity: Entity) -> Bool {
+        var current: Entity? = entity
+        while let e = current {
+            if e.name == "SampleContainer" { return true }
+            current = e.parent
+        }
+        return false
     }
 
     /// Indoor floor Y in lab-local coordinates. Phase 9 Part F pins
