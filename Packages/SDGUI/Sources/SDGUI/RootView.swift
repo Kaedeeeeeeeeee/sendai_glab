@@ -801,6 +801,10 @@ public struct RootView: View {
         workbenchStore = WorkbenchStore(eventBus: bus)
         vehicleStore = VehicleStore(eventBus: bus)
         await questStore.start()
+        // Phase 9 Part E: hydrate vehicle snapshots from disk so a
+        // drone summoned in a previous session re-materialises in
+        // the scene via `VehicleSummoned` republish.
+        await vehicleStore.start()
 
         // Phase 8: Disaster store + audio bridge. Rebind on the real
         // bus; bind the System to the fresh Store so
@@ -809,6 +813,10 @@ public struct RootView: View {
         // `DisasterShakeTargetComponent` so the earthquake System's
         // query picks them up.
         disasterStore = DisasterStore(eventBus: bus)
+        // Phase 9 Part E: hydrate disaster state + triggered-quest
+        // set so a reload mid-quake doesn't lose progress and a
+        // quest-driven disaster doesn't re-fire on cold boot.
+        await disasterStore.start()
         DisasterSystem.boundStore = disasterStore
         let dBridge = DisasterAudioBridge(
             eventBus: bus,

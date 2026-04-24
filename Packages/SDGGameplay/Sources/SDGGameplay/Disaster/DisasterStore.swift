@@ -50,7 +50,7 @@ import SDGCore
 /// the System would interleave amplitudes in a way we haven't
 /// designed yet. Out of scope for MVP; revisit when ADR-0011 covers
 /// compound disasters.
-public enum DisasterState: Sendable, Equatable {
+public enum DisasterState: Sendable, Equatable, Codable {
     case idle
 
     /// An earthquake is shaking. `remaining` counts down each tick;
@@ -108,6 +108,12 @@ public enum DisasterIntent: Sendable {
     /// Reset to `.idle` without firing any end events. Intended for
     /// test teardown and scene reloads.
     case resetForTesting
+
+    /// Record that the disaster tied to `questId` has fired once
+    /// already. The quest-driven trigger bridge records this so a
+    /// second reload doesn't re-play the same disaster cutscene.
+    /// Idempotent: adding the same id twice is a no-op.
+    case markQuestTriggered(questId: String)
 }
 
 // MARK: - Store
@@ -121,12 +127,31 @@ public final class DisasterStore: Store {
     /// Observable state; the sole mutator is `intent(_:)`.
     public private(set) var state: DisasterState = .idle
 
+    /// Quest ids whose quest-driven disaster has already fired and
+    /// must not re-fire on reload. Populated by callers via
+    /// `.markQuestTriggered` when they translate a quest completion
+    /// into a disaster trigger. Persisted alongside `state`.
+    ///
+    /// Example: the Aobayama earthquake is configured to fire when
+    /// `q.field.kawauchi-survey` completes. If the player quits and
+    /// reloads after completing that quest, we do NOT want another
+    /// earthquake — the coordinator checks this set before triggering.
+    public private(set) var triggeredQuestIds: Set<String> = []
+
     /// Event bus for outbound notifications. Injected so tests can
     /// own the bus and assert on publications.
     private let eventBus: EventBus
 
-    public init(eventBus: EventBus) {
+    /// Persistence backend. Injected so tests pass `.inMemory`;
+    /// default `.standard` hits `UserDefaults.standard`.
+    private let persistence: DisasterPersistence
+
+    public init(
+        eventBus: EventBus,
+        persistence: DisasterPersistence = .standard
+    ) {
         self.eventBus = eventBus
+        self.persistence = persistence
     }
 
     // MARK: - Intent
@@ -148,6 +173,7 @@ public final class DisasterStore: Store {
                 intensity: clampedIntensity,
                 questId: questId
             )
+            persistIgnoringFailure()
             await eventBus.publish(EarthquakeStarted(
                 questId: questId,
                 intensity: clampedIntensity,
@@ -164,6 +190,7 @@ public final class DisasterStore: Store {
                 durationSeconds: clampedDuration,
                 questId: questId
             )
+            persistIgnoringFailure()
             await eventBus.publish(FloodStarted(
                 questId: questId,
                 targetWaterY: targetWaterY,
@@ -175,6 +202,17 @@ public final class DisasterStore: Store {
 
         case .resetForTesting:
             state = .idle
+            triggeredQuestIds = []
+            try? persistence.save(.empty)
+
+        case let .markQuestTriggered(questId):
+            // Set insertion is idempotent; only save if the set
+            // actually grew, to avoid a defaults write every tick if
+            // someone accidentally fires this in a hot loop.
+            let (inserted, _) = triggeredQuestIds.insert(questId)
+            if inserted {
+                persistIgnoringFailure()
+            }
         }
     }
 
@@ -193,6 +231,7 @@ public final class DisasterStore: Store {
             let next = remaining - dt
             if next <= 0 {
                 state = .idle
+                persistIgnoringFailure()
                 await eventBus.publish(EarthquakeEnded(questId: questId))
             } else {
                 state = .earthquakeActive(
@@ -200,6 +239,13 @@ public final class DisasterStore: Store {
                     intensity: intensity,
                     questId: questId
                 )
+                // Intentionally do NOT persist on every tick. The
+                // tick cadence is 60 Hz; writing JSON to UserDefaults
+                // 60× per second would be wasteful. Save-on-boundary
+                // (start / end / reset / markTriggered) is enough to
+                // restore the *existence* of an active quake on
+                // reload; the exact remaining-time delta across an
+                // app quit is not gameplay-critical.
             }
 
         case let .floodActive(progress, startY, targetY, duration, questId):
@@ -212,6 +258,7 @@ public final class DisasterStore: Store {
             let next = progress + dt / duration
             if next >= 1 {
                 state = .idle
+                persistIgnoringFailure()
                 await eventBus.publish(FloodEnded(questId: questId))
             } else {
                 state = .floodActive(
@@ -221,6 +268,8 @@ public final class DisasterStore: Store {
                     durationSeconds: duration,
                     questId: questId
                 )
+                // See earthquake branch above for why we don't
+                // persist per-tick.
             }
         }
     }
@@ -228,13 +277,34 @@ public final class DisasterStore: Store {
     // MARK: - Store protocol
 
     public func start() async {
-        // Reserved for future disk hydrate. No subscriptions —
-        // `DisasterStore` is a pure command/state container. The
-        // caller (RootView) creates the Store, calls `start()` for
-        // API parity with the other Stores, and owns the lifecycle.
+        // Hydrate from disk. Loading failure is a soft reset: first
+        // launch (no data) and a corrupt blob both land back at
+        // `.idle` with no fired quests — that's the safest state.
+        guard let snapshot = try? persistence.load() else { return }
+        state = snapshot.state
+        triggeredQuestIds = snapshot.triggeredQuestIds
     }
 
     public func stop() async {
         // Symmetric with `start`; no subscriptions to tear down.
+    }
+
+    // MARK: - Persistence helper
+
+    /// Best-effort save. Persistence failure must not crash gameplay;
+    /// in the worst case the disaster state rolls back on next launch.
+    /// Mirrors `InventoryStore.persistIgnoringFailure` — one place
+    /// owns the swallow so call sites stay readable.
+    private func persistIgnoringFailure() {
+        let snapshot = DisasterPersistence.Snapshot(
+            state: state,
+            triggeredQuestIds: triggeredQuestIds
+        )
+        do {
+            try persistence.save(snapshot)
+        } catch {
+            // Intentionally swallowed. Worst case: the player's
+            // last disaster state won't survive the next launch.
+        }
     }
 }
