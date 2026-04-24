@@ -338,6 +338,95 @@ public enum ToonMaterialFactory {
         return makeHardCelMaterialPBR(baseColor: baseColor)
     }
 
+    // MARK: - Phase 11 Part D: textured PBR → painted-cel mutator
+
+    /// Emissive tint applied when mutating an existing textured
+    /// `PhysicallyBasedMaterial` into the "painted-realistic /
+    /// Borderlands-ish" look. Kept as a white at ~25 % alpha so the
+    /// emissive *augments* the baked facade JPG rather than recolouring
+    /// it — the whole point of the mutator is to leave colour identity
+    /// to the texture and only push overall brightness. Pinned by
+    /// `testMutateIntoTexturedCelBoostsEmissive`.
+    internal static let texturedCelEmissiveWhiteAlpha: CGFloat = 0.25
+
+    /// Mutate an existing `PhysicallyBasedMaterial` (typically one that
+    /// arrived with a real `baseColor.texture` from USDZ load) into the
+    /// Phase 11 Part D painted-cel look **without replacing the
+    /// texture**. Returned material:
+    ///
+    /// * `baseColor` untouched — texture *and* tint preserved. This is
+    ///   the entire point of the function: Phase 11 Part C's textured
+    ///   PLATEAU tiles must keep their facade JPGs.
+    /// * `roughness = 1`, `metallic = 0`, `specular = 0` — matte
+    ///   response, no PBR highlight. Matches the hard-cel fallback.
+    /// * `clearcoat = 0`, `clearcoatRoughness = 1` — kill any residual
+    ///   sheen the authoring pass may have left on.
+    /// * `emissiveColor = white @ 25% alpha` + `emissiveIntensity = 1`
+    ///   — a subtle self-lit boost that brightens the texture's
+    ///   darker shading side without washing out its colour identity.
+    /// * `blending = .opaque` — PLATEAU facades are never meant to be
+    ///   translucent; lock it explicitly so a stray alpha channel on a
+    ///   facade JPG doesn't open a translucent pass.
+    ///
+    /// Does **not** touch the material's `normal`, `roughness.texture`,
+    /// or any other sampler — those stay as the USDZ authored them.
+    /// The outline shell (`makeOutlineEntity`) is still attached by
+    /// callers, which is what actually delivers the "cartoon
+    /// silhouette" half of the Borderlands-ish look.
+    ///
+    /// - Parameter material: The PBR material to mutate. Caller assigns
+    ///   the return value back into the `ModelComponent`'s material
+    ///   slot — `PhysicallyBasedMaterial` is a value-semantic struct so
+    ///   the mutation is visible only after re-assignment.
+    /// - Returns: The mutated material. `TextureResource` is
+    ///   reference-backed inside `MaterialParameters.Texture`, so the
+    ///   returned struct shares the original texture identity —
+    ///   verified by `testMutateIntoTexturedCelPreservesBaseColorTexture`.
+    ///
+    /// - Important: MainActor-isolated like the rest of the factory
+    ///   because `PhysicallyBasedMaterial` property setters are
+    ///   MainActor in iOS 18.
+    @MainActor
+    public static func mutateIntoTexturedCel(
+        _ material: PhysicallyBasedMaterial
+    ) -> PhysicallyBasedMaterial {
+        var mutated = material
+
+        // 1. `baseColor` is intentionally untouched. `BaseColor` is a
+        //    value-semantic struct whose `texture` field wraps a
+        //    reference-typed `TextureResource`, so copying the struct
+        //    keeps the texture bytes shared — no GPU re-upload, no
+        //    sampler re-creation.
+
+        // 2. Painted look: fully matte, no metal, no specular.
+        mutated.roughness = .init(floatLiteral: 1.0)
+        mutated.metallic = .init(floatLiteral: 0.0)
+        mutated.specular = .init(floatLiteral: 0.0)
+
+        // 3. Kill clearcoat in case the authoring pass left it on.
+        //    Clearcoat on a matte facade reads as a glossy band that
+        //    breaks the painted feel.
+        mutated.clearcoat = .init(floatLiteral: 0.0)
+        mutated.clearcoatRoughness = .init(floatLiteral: 1.0)
+
+        // 4. Emissive boost. White at ~25 % alpha → lifts the shaded
+        //    side of the texture without recolouring it. `UIColor`
+        //    (iOS) / `NSColor` (macOS) both accept the same
+        //    `(white:alpha:)` initialiser; aliased via
+        //    `ToonPlatformColor` so this compiles on both platforms.
+        let boost = ToonPlatformColor(
+            white: 1.0,
+            alpha: texturedCelEmissiveWhiteAlpha
+        )
+        mutated.emissiveColor = .init(color: boost, texture: nil)
+        mutated.emissiveIntensity = 1.0
+
+        // 5. Opaque blending — see header comment.
+        mutated.blending = .opaque
+
+        return mutated
+    }
+
     /// Scheme C-v2 (fallback) for `makeHardCelMaterial`. Pushes PBR
     /// emissive to 0.9 × base — the closest PBR can get to a cel
     /// look without a custom shader.
