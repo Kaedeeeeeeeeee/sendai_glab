@@ -129,6 +129,13 @@ public struct HUDOverlay: View {
     /// forwarding changes into `PlayerControlStore.intent(.move)`.
     @Binding public var joystickAxis: SIMD2<Float>
 
+    /// Phase 7.1 — vertical stick value for drone climb/descend.
+    /// Written by the embedded `VerticalSliderView`; the parent
+    /// forwards it into `vehicleStore.intent(.pilot(vertical:))`.
+    /// Visible only while a vehicle is occupied; see
+    /// `verticalSliderVisible` below.
+    @Binding public var verticalSliderValue: Float
+
     /// Invoked on drill-button tap. Typically wraps an
     /// `await drillingStore.intent(.drillAt(...))` in a `Task`.
     public let onDrillTapped: () -> Void
@@ -178,6 +185,7 @@ public struct HUDOverlay: View {
         inventoryStore: InventoryStore,
         vehicleStore: VehicleStore,
         joystickAxis: Binding<SIMD2<Float>>,
+        verticalSliderValue: Binding<Float>,
         playerWorldPosition: SIMD3<Float>,
         onDrillTapped: @escaping () -> Void,
         onInventoryTapped: @escaping () -> Void,
@@ -189,11 +197,51 @@ public struct HUDOverlay: View {
         self.inventoryStore = inventoryStore
         self.vehicleStore = vehicleStore
         self._joystickAxis = joystickAxis
+        self._verticalSliderValue = verticalSliderValue
         self.playerWorldPosition = playerWorldPosition
         self.onDrillTapped = onDrillTapped
         self.onInventoryTapped = onInventoryTapped
         self.onBoardTapped = onBoardTapped
         self.onExitVehicleTapped = onExitVehicleTapped
+    }
+
+    /// Phase 7 backward-compat init — kept so the pre-7.1 RootView
+    /// call sites continue to compile while the Phase 9 D integration
+    /// note threads the new `verticalSliderValue` binding through. The
+    /// omitted binding defaults to a constant-zero so the slider
+    /// renders as hidden (`verticalSliderVisible` still gates
+    /// visibility on `occupiedVehicleId`, so the only effect is that
+    /// the drone cannot climb/descend until the parent actually
+    /// wires a real binding).
+    ///
+    /// Delete this convenience init once every integration site has
+    /// been updated — retaining two overloads indefinitely would
+    /// invite new callers to skip the slider entirely.
+    public init(
+        playerStore: PlayerControlStore,
+        drillingStore: DrillingStore,
+        inventoryStore: InventoryStore,
+        vehicleStore: VehicleStore,
+        joystickAxis: Binding<SIMD2<Float>>,
+        playerWorldPosition: SIMD3<Float>,
+        onDrillTapped: @escaping () -> Void,
+        onInventoryTapped: @escaping () -> Void,
+        onBoardTapped: @escaping (UUID) -> Void,
+        onExitVehicleTapped: @escaping () -> Void
+    ) {
+        self.init(
+            playerStore: playerStore,
+            drillingStore: drillingStore,
+            inventoryStore: inventoryStore,
+            vehicleStore: vehicleStore,
+            joystickAxis: joystickAxis,
+            verticalSliderValue: .constant(0),
+            playerWorldPosition: playerWorldPosition,
+            onDrillTapped: onDrillTapped,
+            onInventoryTapped: onInventoryTapped,
+            onBoardTapped: onBoardTapped,
+            onExitVehicleTapped: onExitVehicleTapped
+        )
     }
 
     // MARK: - Body
@@ -204,6 +252,7 @@ public struct HUDOverlay: View {
             // alignments stay readable and the four widgets
             // don't fight over a shared layout container.
             joystickCorner
+            verticalSliderColumn
             drillCorner
             inventoryCorner
             statusBannerArea
@@ -247,6 +296,28 @@ public struct HUDOverlay: View {
                 .padding(.trailing, 40)
                 .padding(.bottom, 40)
             }
+        }
+    }
+
+    /// Right-edge, mid-height: 80×200 pt vertical climb stick. Sits
+    /// just left of the DrillButton / BoardButton column so the
+    /// pilot's thumb moves naturally between planar (left-bottom
+    /// joystick) and vertical (right-mid slider) inputs. Visible
+    /// only while a vehicle is occupied; otherwise the embedded
+    /// `VerticalSliderView` collapses to `EmptyView()` and takes
+    /// no layout space.
+    private var verticalSliderColumn: some View {
+        HStack {
+            Spacer()
+            VerticalSliderView(
+                output: $verticalSliderValue,
+                isVisible: verticalSliderVisible
+            )
+            .frame(
+                width: verticalSliderVisible ? 80 : 0,
+                height: verticalSliderVisible ? 200 : 0
+            )
+            .padding(.trailing, 140) // clear of the Drill/Board column
         }
     }
 
@@ -306,6 +377,16 @@ public struct HUDOverlay: View {
     /// to clip into the mesh. Tuning knob; raise if the button
     /// pops on/off too aggressively.
     private static let boardProximityMeters: Float = 3.0
+
+    /// Phase 7.1 — show the vertical slider only while the player
+    /// pilots a vehicle. On foot, the slider would be a hanging UI
+    /// element with no effect (the Store ignores `.pilot` when
+    /// `occupiedVehicleId == nil`), so we hide it entirely. Reading
+    /// from the Store keeps the visibility source-of-truth in one
+    /// place — parents don't need to thread a separate flag.
+    private var verticalSliderVisible: Bool {
+        vehicleStore.occupiedVehicleId != nil
+    }
 
     /// Resolve what the BoardButton should render. Order of checks
     /// matters:
