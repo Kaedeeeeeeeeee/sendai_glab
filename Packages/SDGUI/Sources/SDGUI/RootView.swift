@@ -219,6 +219,14 @@ public struct RootView: View {
     /// Phase 9 Part F: subscription token for SceneTransitionStarted.
     @State private var sceneTransitionStartedToken: SubscriptionToken?
 
+    /// Phase 9 Part G: accumulated camera pitch while piloting a
+    /// vehicle. The player's on-foot pitch lives in
+    /// `PlayerControlSystem.accumulatedPitch`, but that System skips
+    /// the player entity while piloting (isEnabled = false), so we
+    /// need an independent buffer for pilot-mode pitch. Clamped to
+    /// ±80° same as the on-foot version. Resets to 0 on exit.
+    @State private var pilotCameraPitch: Float = 0
+
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
 
@@ -878,7 +886,15 @@ public struct RootView: View {
             playerBody.addChild(camera)
             // Back to head height — matches CharacterLoader default.
             camera.transform.translation = SIMD3<Float>(0, 1.5, 0)
+            // Phase 9 Part G: reset the camera's pitch on exit so the
+            // drone's last look angle doesn't carry into the on-foot
+            // view. PlayerControlSystem owns its own pitch accumulator
+            // for on-foot control and will re-drive this.
+            camera.orientation = simd_quatf()
         }
+        // Phase 9 Part G: reset the pilot pitch buffer so a future
+        // board starts at a neutral (horizon-level) angle.
+        pilotCameraPitch = 0
         playerBody.isEnabled = true
         if let vehicleEntity = vehicleStore.entity(for: event.vehicleId) {
             // Phase 7.1: clean up the follow-cam marker so a future
@@ -1224,7 +1240,25 @@ public struct RootView: View {
     // MARK: - Look gesture
 
     /// Right-half-screen `DragGesture`: translates raw point deltas
-    /// into radian look-intents and forwards them to the Store.
+    /// into radian look-intents.
+    ///
+    /// ## Routing
+    ///
+    /// - **On foot** (no occupied vehicle): forwards yaw + pitch to
+    ///   `playerStore.intent(.look)`. PlayerControlSystem rotates
+    ///   the player body on yaw and the head-height camera on pitch.
+    ///
+    /// - **Piloting** (Phase 9 Part G): PlayerControlSystem is gated
+    ///   out (player.isEnabled = false), so we mutate the drone and
+    ///   its reparented camera directly:
+    ///   * yaw rotates the vehicle entity around world +Y — the
+    ///     camera is a child so it follows, and the drone's "forward"
+    ///     vector (used by `VehicleControlSystem` for moveAxis) turns
+    ///     with it
+    ///   * pitch rotates the camera around local X — tracked in
+    ///     `pilotCameraPitch` so repeated drags compose cleanly, and
+    ///     clamped to the same ±80° as on-foot pitch so the camera
+    ///     can't flip past vertical
     private var lookGesture: some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
@@ -1238,12 +1272,35 @@ public struct RootView: View {
                 let yaw = Float(dx) * lookSensitivity
                 let pitch = Float(-dy) * lookSensitivity
 
-                let store = playerStore
                 let bus = env.eventBus
+                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
+
+                // Piloting a vehicle → yaw on drone, pitch on camera.
+                if let vehicleId = vehicleStore.occupiedVehicleId,
+                   let vehicle = vehicleStore.entity(for: vehicleId) {
+                    if yaw != 0 {
+                        let yawQuat = simd_quatf(
+                            angle: -yaw, axis: SIMD3<Float>(0, 1, 0)
+                        )
+                        vehicle.orientation = vehicle.orientation * yawQuat
+                    }
+                    if pitch != 0, let camera = findPerspectiveCamera(under: vehicle) {
+                        let pitchLimit: Float = .pi / 180 * 80
+                        pilotCameraPitch = simd_clamp(
+                            pilotCameraPitch + pitch, -pitchLimit, pitchLimit
+                        )
+                        camera.orientation = simd_quatf(
+                            angle: pilotCameraPitch, axis: SIMD3<Float>(1, 0, 0)
+                        )
+                    }
+                    return
+                }
+
+                // On foot → existing Store path.
+                let store = playerStore
                 Task { @MainActor in
                     await store.intent(.look(SIMD2(yaw, pitch)))
                 }
-                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
             }
             .onEnded { _ in
                 lastLookTranslation = .zero
