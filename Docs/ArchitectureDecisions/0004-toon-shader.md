@@ -133,99 +133,107 @@ ToonMaterialFactory.attachOutline(to: layer)
 
 ---
 
-## Phase 9 Part C Addendum (2026-04-23)
+## Phase 9 Part C-v2 Addendum (2026-04-24)
 
-Phase 1 で保留していた Scheme A(真 step-ramp Toon)を、**Scheme C へのフォールバックつきハイブリッド**として投入した。ステータス: **Accepted(hybrid mode)**。Scheme C は 非推奨ではなく、**保険層として永続**する。
+**ステータス**: **Accepted(hybrid mode, aggressive fallback tuning)**。
+C-v1 が「ShaderGraph 経路はあるが `.usda` が pass-through、
+フォールバックは Phase 1 のマイルド tuning」で視覚的に main と区別がつかなかった問題への応答。
+C-v2 は **Path α(Scheme C の極端化)と Path β(真 3-band step ramp `.usda`)の両方**を
+同時投入し、 β が失敗したら α だけでも目視で違いが出ることを保証する。
 
-### 方針
+### Path α — Scheme C を "ほぼ unlit" まで押し込む
+
+C-v1 の Scheme C は「flat-ish PBR」だった。C-v2 では PBR フォールバックそのものを
+極端にトゥーン寄りにチューニングする:
+
+| 項目 | C-v1 | **C-v2** | 効果 |
+|---|---|---|---|
+| `hardCelEmissiveFactor` (建物・地形) | 0.6 | **0.9** | ほぼ自己発光 — shading gradient 消失 |
+| `softCelEmissiveFactor` (outcrop 層) | 0.35 | **0.5** | 影側のマディ感軽減 |
+| `saturationBoost` (全 PBR パス) | なし | **1.15** | 彩度 15% up — "塗った" 感 |
+| `clearcoat` (soft 変種) | default | **0.0** | gloss/highlight を hard-kill |
+| Outline hull スケール | 1.02 | **1.05** | 2.5× 太いインク |
+| Outline インク色 | pure black | **darkened complement**(base×−1×0.25) | 意図のある配色に |
+
+**Path α だけでも** main PBR とは視覚的に明らかな違いが出る:
+全体的にフラット、影に深い黒が出ない、輪郭が太く色つき、ハイライトが消える。
+
+### Path β — 真の 3-band NdotL step ramp `.usda`
+
+`Resources/Shaders/StepRampToon.usda` を書き直し:
 
 ```
-┌──────────────────────────────────────────────────┐
-│ Preload 時: ShaderGraphMaterial(named:from:in:)  │
-│   success → cachedShaderGraph = .success(tpl)    │
-│   failure → cachedShaderGraph = .failure(err)    │
-│                                                   │
-│ makeLayerMaterial / makeHardCelMaterial(同期):    │
-│   1. attemptStepRampMaterial(baseColor:)          │
-│      ├─ cache == .success → clone + setParameter  │
-│      │                        → Scheme A return   │
-│      ├─ cache == .failure → nil (log once)        │
-│      └─ cache == nil     → nil (silent: timing)   │
-│   2. nil なら Scheme C (PBR+emissive) にフォール   │
-└──────────────────────────────────────────────────┘
+baseColor ─┬─► ×0.55 ─► ShadowBand ─┐
+           ├─► ×0.80 ─► MidBand  ───┤ ← ND_ifgreater_color3 × 2
+           └─► ×1.15 ─► LitBand  ───┘   (thresholds 0.33, 0.67)
+                                    │
+N (world) ┐                         │
+          ├─► ND_dotproduct_vector3 ►│
+L (const) ┘                         ▼
+                              emission_color
+                                    │
+                                ND_surface_unlit
 ```
 
-### 変更点
+- `ND_normal_vector3` で world-space 法線、`ND_constant_vector3` で固定太陽方向
+  `(0.32, 0.83, 0.45)` を与え、`ND_dotproduct_vector3` で NdotL。
+- 3 band を `ND_ifgreater_color3` 二段で選択、`ND_multiply_color3FA` で各 band を
+  pre-shade。
+- `ND_surface_unlit` の `emission_color` に接続(engine の PBR lighting を
+  double-apply しないため)。
 
-1. **新規ファイル**: `Resources/Shaders/StepRampToon.usda` — hand-written MaterialX。
-   現在は簡易 pass-through(`ND_surface_unlit` の `emission_color` に `baseColor`
-   パラメータ直結)。真の 3-band NdotL step ramp への昇格は「Next steps」参照。
-2. **`ToonMaterialFactory` 拡張**:
-   - `preloadStepRampShader(bundle:) async -> Bool` — 起動時に 1 度呼ぶプリロード API。
-   - `attemptStepRampMaterial(baseColor:) -> Material?` — internal sync path、cache
-     を読んで ShaderGraph を返すか nil。
-   - `cachedShaderGraph: Result<ShaderGraphMaterial, Error>?` — MainActor-isolated
-     な static cache。`nonisolated(unsafe)` は Swift 6 で `ShaderGraphMaterial`
-     が Sendable でないための逃げ。シングルトンではなく resource cache。
-   - Scheme C の実装を `makeLayerMaterialPBR` / `makeHardCelMaterialPBR` に rename、
-     そこへフォールバック。
-3. **`ToonMaterialFactory+Outline.swift` は未変更**。Outline は Scheme A でも
-   依然として back-face hull で出す。ShaderGraph 側で rim light を書けるようになったら
-   この後の PR で抜く。
-4. **テスト +4**: shader load 試行 / fallback 経路 / 常時 usable material / hard-cel
-   経路。`swift test` で 358 tests / 0 failures。
+**リスク**:RealityKit の MaterialX parser が上記の node ID を全て受け付ける保証は
+ない(C-v1 で確認できたのは pass-through `ND_surface_unlit` のみ)。受け付けない
+場合は `ShaderGraphMaterial.LoadError.invalidTypeFound` → cache に `.failure` を入れて
+Path α にフォールスルー。**失敗しても Path α の極端 tuning が visibly-different を保証する**ため、
+両賭けで損はない。
 
-### なぜ Scheme C を残すのか
+### 両 path の合成戦略
 
-1. **`.usda` の脆さ** — MaterialX の node id・スキーマ は 1 文字のタイポで
-   `invalidTypeFound` を上げる。Headless agent(Reality Composer Pro 非使用)で
-   書かれた `.usda` は将来の誰かが触ってすぐに壊せる。
-2. **Launch blocker 禁止** — ゲームは「動き続ける」が最優先。Scheme A が死んでも
-   Scheme C で普通の PBR 塗りがレンダリングされる。
-3. **Single-path maintenance 不要** — Scheme C は Phase 1 から既に書かれており、
-   消すと復活コストが高い。Fallback として残すのはコスト低。
-4. **Async init** — `ShaderGraphMaterial(named:from:in:)` は `async throws`。
-   Factory の call site(`StackedCylinderMeshBuilder` など)は全て同期。Scheme C
-   を残すことで、**プリロードが済む前の最初のフレーム** でもレンダリングできる。
+```
+preloadStepRampShader() が:
+  success → Scheme A(3-band step ramp ShaderGraph)
+  failure → log + Scheme C-v2(tuned PBR + thick outline + complement ink)
+  未実行  → Scheme C-v2(timing フォールスルー、ログ出さず)
+```
 
-### なぜ pass-through graph なのか(真 step ramp ではなく)
+どの状態でも最小でも「C-v1 の Scheme C より明確に違う」レンダリングを得る。
 
-真の 3-band NdotL step ramp には **per-scene light direction の取得** が必要。
-MaterialX の標準ライブラリには `ND_normal_vector3`(geometric normal を world
-space で返す)や `ND_dotproduct_vector3`(内積)はあるが、RealityKit の
-ShaderGraph では **どのノード名 / スキーマが実際に認識されるか** が公開文書では
-不明瞭。最初に試した複雑な graph(`NormalVec` → `Dot` → `IfGreater` × 2 → `Multiply`)
-は `invalidTypeFound` で即死した。
+### RootView 統合
 
-よって Phase 9 Part C では:
+**本 PR では統合不要**。public API はすべて同じ `RealityKit.Material` 返却。
+preload は将来 `SendaiGLabApp.init` で 1 行追加(非本 PR scope)。
+詳細は `Docs/Phase9Integration/Cv2.md`。
 
-- **動く最小限**: `ND_surface_unlit` + `baseColor` パス。
-- これだけでも PBR とは見た目が違う(IBL / specular 寄与なし = 完全ベタ塗り)
-  → "Toon っぽい" として読める。
-- 将来の Reality Composer Pro 統合 or `ND_normal_vector3` 等のパス検証が済んだ
-  時点で真の step ramp に **`.usda` 差し替え 1 発で** 昇格できる。Swift 側の
-  fallback chain はそのまま使える。
+### テスト(+8)
 
-### Next steps
+- `testHardCelEmissiveFactorIs0_9` — 定数 0.9 とその flow through を pin
+- `testSoftCelEmissiveFactorIs0_5` — soft 変種の 0.5 factor を pin
+- `testSaturationBoostMultipliesChannels` — 1.15 定数 + 3 channel multiply + clamp ceiling
+- `testOutlineHullScaleIs1_05` — outline scale を 1.05 に pin(z-fighting 境界)
+- `testOutlineInkDefaultsToBlackWhenBaseColorNil` — legacy 呼び出し側の互換
+- `testOutlineInkTintedByComplementWhenBaseColorProvided` — warm base → cool ink
+- `testFullStrengthEmissiveMatchesDocumentedFactor` — 0.35 → 0.5 の pin update
+- + 既存の `testFallbackReturnsPhysicallyBasedMaterialOnLoadFailure` と
+  `testMakeLayerMaterialAlwaysReturnsValidMaterial` (C-v1 由来) は C-v2 でも合格
 
-1. **真の step ramp `.usda` 昇格**。RCP でビジュアル構築するか、`Tools/plateau-pipeline/`
-   的な "shader authoring tool" を作って MaterialX graph を検証済み node id から
-   組み立てる。3 bands (`lowStep=0.25`, `midStep=0.6`, `highStep=1.0`)。
-2. **Rim light** — Fresnel 項を ShaderGraph 側で書いて outline 廃止候補。
-3. **Preload 統合** — `SendaiGLabApp.init` 近辺で `await
-   ToonMaterialFactory.preloadStepRampShader()` を呼んで初フレームから Scheme A
-   を有効化。本 PR は RootView 非編集の縛りで保留。
-4. **Graph の複雑化テスト**。hand-written `.usda` が壊れていないかを CI で確認
-   する "header check" script。現状は `swift test` が間接的に検証している。
+計 baseline 379 → **416 tests / 0 failures**(C-v2 ToonMaterialFactoryTests 16 → 24、
+および worktree 既存の World/Interior* や Location* 4 suite が取り込まれた結果)。
 
-### 影響
+### z-fighting 考慮
 
-- **メリット**: 将来 Scheme A に完全に乗った時に、Swift コードの変更ゼロで `.usda`
-  だけで視覚を更新できる土台ができた。
-- **負債**: hand-written MaterialX 1 個を repo 内に抱えた。コードレビューで node id
-  のタイポを見つけるのは難しい(Xcode では USD シンタックスハイライトに留まる)。
-  Phase 10 以降で validate する lightweight Python parser を検討。
-- **パフォーマンス**: Scheme A 成功時は `ShaderGraphMaterial` 1 枚 × clone 数。
-  Scheme C 相当。アウトライン hull は **どちらのパスでも** そのまま出る(Outline
-  を剥がす最適化は Phase 10 以降)。
+1.05× hull は PLATEAU 建物(厚み > 1m)では安全だが、DEM terrain の薄い三角形
+(垂直成分 cm オーダ)では back-face が front を貫く可能性がある。Phase 6.1 の
+per-building pre-snap + merge で建物の厚みは維持されているので実害は低いが、
+真機テストで z-fighting を目視したら即座に 1.03〜1.04 に下げる(Phase 10 で測定)。
 
+### 負債 / 次の手
+
+1. **真 step ramp `.usda` の検証**。MaterialX node ID が RealityKit で本当に
+   認識されるかは実機 or simulator でしか確かめられない。失敗時のログを
+   Console.app で grep(`toon-shader`)して `invalidTypeFound` が出ていないか確認。
+2. **Preload integration**。`SendaiGLabApp.init` か bootstrap task で
+   `await ToonMaterialFactory.preloadStepRampShader()` を呼ぶ PR(C-v3 scope)。
+3. **Rim light**。ShaderGraph 側で Fresnel 項を書けば outline hull 廃止候補。
+4. **Cascade 値の ADR への pin**。Phase 10 で playtest 後、色数 / factor 値を最終化し
+   本 addendum に数値を固定。

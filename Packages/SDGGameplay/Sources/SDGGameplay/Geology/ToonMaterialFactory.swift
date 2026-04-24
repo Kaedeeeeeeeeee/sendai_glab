@@ -1,7 +1,12 @@
 // ToonMaterialFactory.swift
 // SDGGameplay · Geology
 //
-// Phase 9 Part C — ADR-0004 Scheme A with defensive fallback to Scheme C.
+// Phase 9 Part C-v2 — ADR-0004 Scheme A (真 step-ramp ShaderGraph) with an
+// aggressively tuned Scheme C fallback. The fallback is no longer the
+// "Phase 1 Scheme C" values — it is pushed hard toward cartoon so that
+// when the `.usda` is still a pass-through graph (or fails to load), the
+// user *still* sees an unmistakably flat, saturated, cel look compared to
+// mainline PBR.
 //
 // The factory is the *only* public entry point geology / UI code should
 // reach for when they want "a Toon-ified material for a given colour".
@@ -12,27 +17,36 @@
 // ## Scheme A (primary) — `ShaderGraphMaterial` + hand-written `.usda`
 //
 // Loads `Resources/Shaders/StepRampToon.usda` and sets a `baseColor`
-// parameter on the resulting `ShaderGraphMaterial`. That graph computes
-// a three-band NdotL step ramp for a real cel-shaded look (see the
-// `.usda` file for the shape).
+// parameter on the resulting `ShaderGraphMaterial`. C-v2 authors a real
+// 3-band NdotL step ramp in the `.usda` (see the file's header comment
+// for the graph shape). If RealityKit's MaterialX parser refuses any
+// of the nodes the factory falls through to Scheme C rather than
+// bricking geology rendering.
 //
-// ## Scheme C (fallback) — tuned `PhysicallyBasedMaterial`
+// ## Scheme C-v2 (fallback) — heavily tuned `PhysicallyBasedMaterial`
 //
-// Hand-written MaterialX is brittle — a single wrong node ID raises
-// `ShaderGraphMaterial.LoadError.invalidTypeFound` at load time. When
-// that happens, the factory logs through `os.Logger` AND `print` (so
-// the failure is never silent) and falls back to the Phase 1 PBR+hull
-// pseudo-toon. Gameplay must not die because of a bad shader.
+// C-v1 tuning was "flat-ish PBR". C-v2 tuning is "nearly unlit cel":
+//   * Emissive floor 0.9 × base (was 0.6 for hard-cel, 0.35 for soft).
+//   * Saturation boost 1.15× on the base colour before feeding tint.
+//   * Clearcoat = 0 (hard-kill gloss) — already was for hard-cel,
+//     now also enforced for the soft layer variant.
+//   * Outline hull grown 1.02 → 1.05 for a visibly thicker silhouette.
+//   * Outline colour tinted by the *complement* of the base colour so
+//     the ink reads intentional rather than "pure black halo":
+//       warm building → dark blue outline
+//       cool grey terrain → dark brown outline
 //
-// See ADR-0004 (and the Phase 9 Part C addendum) for the full rationale.
+// See ADR-0004 Phase 9 Part C-v2 section for the rationale on each knob.
 //
 // ## What "Toon" means here
 //
-// * If the ShaderGraph loads: three-band NdotL step ramp, unlit output
-//   (no specular), base-colour tint driven by the `baseColor` parameter.
-// * If it doesn't load (fallback): flat-ish PBR with `roughness=1`,
-//   `metallic=0`, and an emissive floor so shadows don't read deep
-//   black. Plus the back-face-hull outline (unchanged from Phase 1).
+// * If the ShaderGraph loads: 3-band NdotL step ramp with an unlit
+//   output path (no specular), base-colour tint driven by the
+//   `baseColor` parameter.
+// * If it doesn't load (fallback): nearly-self-lit PBR with
+//   `roughness=1`, `metallic=0`, `clearcoat=0`, saturation-boosted
+//   `baseColor`, and an aggressive emissive floor. Plus a 1.05× hull
+//   outline tinted by the base colour's complement.
 //
 // Everything here is `@MainActor` because RealityKit material / entity
 // initialisers on iOS 18 are MainActor-isolated.
@@ -79,10 +93,40 @@ public enum ToonMaterialFactory {
     // MARK: Tunables
 
     /// How far the outline hull is scaled beyond the source mesh.
-    /// 1.02 = 2 % larger on every axis. Tight enough that the outline
-    /// reads as a pen stroke rather than a halo. Exposed as `internal`
-    /// so tests can pin its value without parsing magic numbers.
-    internal static let outlineScale: Float = 1.02
+    /// C-v1 shipped 1.02 (2 % larger). C-v2 ships **1.05** (5 % larger)
+    /// so the silhouette reads unambiguously as a cartoon ink stroke at
+    /// normal viewing distance (3 – 30 m for PLATEAU buildings). Pinned
+    /// by `testOutlineHullScaleIs1_05` so the value survives refactors.
+    ///
+    /// ### Why 1.05 and not larger
+    ///
+    /// 1.10+ on thin meshes (road slabs, DEM triangles with near-zero
+    /// thickness) z-fights itself; the back faces poke through the
+    /// front. 1.05 is the largest value that was empirically safe in
+    /// the C-v1 back-face-hull approach across the PLATEAU tile set.
+    /// Real rejection of thin-mesh z-fighting would need screen-space
+    /// edge detection — deferred to Phase 10 (see ADR-0004 Phase 9).
+    internal static let outlineScale: Float = 1.05
+
+    /// Saturation boost applied to `baseColor` before the PBR tint is
+    /// computed, in the Scheme C fallback only. 1.0 = unchanged, 1.15
+    /// = 15 % more saturated (our C-v2 value). Clamping back to [0, 1]
+    /// happens after the boost; fully-saturated input colours end up
+    /// unchanged, which is intentional.
+    internal static let saturationBoost: Float = 1.15
+
+    /// Emissive factor for the harder (PLATEAU / terrain) cel fallback
+    /// in C-v2. 0.9 means "90 % self-lit"; the PBR shading contribution
+    /// becomes a thin 10 % modulation. Pinned by
+    /// `testHardCelEmissiveFactorIs0_9`.
+    internal static let hardCelEmissiveFactor: Float = 0.9
+
+    /// Emissive factor for the softer (geology layer) cel fallback in
+    /// C-v2. Raised from C-v1's 0.35 to 0.5 so the layer reads closer
+    /// to a cel band without the pitch-black shadow side. Still lower
+    /// than the hard-cel value so outcrop core layers remain visually
+    /// distinct from buildings around them.
+    internal static let softCelEmissiveFactor: Float = 0.5
 
     /// The smallest `strength` we accept before clamping to 0. We clamp
     /// to [0, 1] inside `makeLayerMaterial(...)`; this constant documents
@@ -148,7 +192,7 @@ public enum ToonMaterialFactory {
     /// - Parameter bundle: Bundle containing `StepRampToon.usda`.
     ///   Defaults to `.main`; tests pass `Bundle.module`.
     /// - Returns: `true` if Scheme A is active, `false` if the factory
-    ///   will be serving Scheme C fallbacks.
+    ///   will be serving Scheme C-v2 fallbacks.
     @MainActor
     @discardableResult
     public static func preloadStepRampShader(
@@ -179,11 +223,11 @@ public enum ToonMaterialFactory {
             // "no silent catch" rule (see AGENTS.md and CLAUDE.md
             // pitfall #9).
             log.error(
-                "StepRampToon preload failed — falling back to PBR Scheme C: \(String(describing: error), privacy: .public)"
+                "StepRampToon preload failed — falling back to PBR Scheme C-v2: \(String(describing: error), privacy: .public)"
             )
             #if DEBUG
             print(
-                "[SDG-Lab][toon-shader] StepRampToon preload failed (\(error)); using PBR Scheme C."
+                "[SDG-Lab][toon-shader] StepRampToon preload failed (\(error)); using PBR Scheme C-v2."
             )
             #endif
             return false
@@ -216,8 +260,8 @@ public enum ToonMaterialFactory {
     ///   the step-ramp ShaderGraph loaded:
     ///     * Success → `ShaderGraphMaterial` with `baseColor` parameter
     ///       set.
-    ///     * Failure → `PhysicallyBasedMaterial` tuned as in Phase 1
-    ///       Scheme C. Callers must not type-assume.
+    ///     * Failure → `PhysicallyBasedMaterial` tuned as in Scheme C-v2.
+    ///       Callers must not type-assume.
     ///
     /// - Important: MainActor-isolated because `PhysicallyBasedMaterial`
     ///   and `ShaderGraphMaterial` setters are on MainActor in
@@ -233,7 +277,7 @@ public enum ToonMaterialFactory {
         return makeLayerMaterialPBR(baseColor: baseColor, strength: strength)
     }
 
-    /// Scheme C (fallback) for `makeLayerMaterial`. Kept as a named
+    /// Scheme C-v2 (fallback) for `makeLayerMaterial`. Kept as a named
     /// method so tests can exercise the fallback shape deterministically
     /// without having to force the ShaderGraph to fail.
     @MainActor
@@ -245,27 +289,25 @@ public enum ToonMaterialFactory {
 
         var material = PhysicallyBasedMaterial()
 
-        // 1. Tint: the layer's core identity. Clamp explicitly; see
-        //    `GeologySceneBuilder.platformColor(from:)` for the same
-        //    pattern and rationale.
-        let tint = clampedToonPlatformColor(from: baseColor)
+        // 1. Tint: the layer's core identity, but C-v2 pushes saturation
+        //    up 15 % so it reads as painted rather than photographed.
+        let boosted = saturationBoosted(baseColor)
+        let tint = clampedToonPlatformColor(from: boosted)
         material.baseColor = .init(tint: tint, texture: nil)
 
         // 2. Roughness = 1 gives a fully matte response. Paired with
         //    metallic = 0, the surface loses all specular highlights
-        //    and reads as "flat paint" — the minimum cel-shading
-        //    appearance we can get out of PBR without a custom shader.
+        //    and reads as "flat paint". C-v2 also hard-kills clearcoat
+        //    for the soft variant (C-v1 only did it for hard-cel).
         material.roughness = .init(floatLiteral: 1.0)
         material.metallic = .init(floatLiteral: 0.0)
+        material.clearcoat = .init(floatLiteral: 0.0)
+        material.clearcoatRoughness = .init(floatLiteral: 1.0)
 
-        // 3. Emissive floor: the "lit band" of a 2-step toon ramp would
-        //    read roughly as (base × 1.0), the "shadow band" as
-        //    (base × 0.5). Setting emissive to `strength × base × 0.35`
-        //    raises the floor so direct lighting stops mattering as
-        //    much — the entity looks closer to self-lit paint, which
-        //    is the dominant aesthetic in BotW / Genshin-style toon.
-        //    0.35 × 0.8 (default strength) ≈ 28 % emissive tint; high
-        //    enough to mute the PBR shading without washing out reads.
+        // 3. Emissive floor: C-v2 raises the soft variant's floor from
+        //    0.35 → 0.5 × base so shadow bands aren't muddy. Still
+        //    lower than the hard-cel 0.9 so outcrop layers remain
+        //    distinguishable from buildings.
         let emissive = emissiveTint(base: baseColor, strength: s)
         material.emissiveColor = .init(color: emissive, texture: nil)
         material.emissiveIntensity = 1.0
@@ -276,11 +318,12 @@ public enum ToonMaterialFactory {
         return material
     }
 
-    // MARK: - Harder cel variant (Phase 3 / still used)
+    // MARK: - Harder cel variant
 
     /// A *harder* cel look. Phase 9 Part C routes this through the
     /// same ShaderGraph when available (the graph itself *is* a hard
-    /// cel) and falls back to the tuned-PBR hard-cel otherwise.
+    /// cel) and falls back to the aggressively-tuned PBR hard-cel
+    /// otherwise.
     ///
     /// Used by the PLATEAU building and terrain loaders — the whole
     /// point is a consistent "flat" look regardless of which surface
@@ -295,28 +338,29 @@ public enum ToonMaterialFactory {
         return makeHardCelMaterialPBR(baseColor: baseColor)
     }
 
-    /// Scheme C (fallback) for `makeHardCelMaterial`. See the original
-    /// Phase 3 implementation comments — same code, just renamed so
-    /// the name documents which branch of the fallback chain it is.
+    /// Scheme C-v2 (fallback) for `makeHardCelMaterial`. Pushes PBR
+    /// emissive to 0.9 × base — the closest PBR can get to a cel
+    /// look without a custom shader.
     @MainActor
     internal static func makeHardCelMaterialPBR(
         baseColor: SIMD3<Float>
     ) -> RealityKit.Material {
         var material = PhysicallyBasedMaterial()
 
-        // Tint: the surface identity. Same clamp as the soft variant.
-        let tint = clampedToonPlatformColor(from: baseColor)
+        // Tint: saturation-boosted like the soft variant, then clamped.
+        let boosted = saturationBoosted(baseColor)
+        let tint = clampedToonPlatformColor(from: boosted)
         material.baseColor = .init(tint: tint, texture: nil)
 
-        // Fully matte response, no metal. Same as the soft variant —
-        // the "harder" feel comes from the emissive floor below.
+        // Fully matte response, no metal. The "harder" feel comes from
+        // the emissive floor below.
         material.roughness = .init(floatLiteral: 1.0)
         material.metallic = .init(floatLiteral: 0.0)
 
-        // Emissive floor at 60 % of base colour (vs. 35 % in the soft
-        // variant). This shallows the shading gradient so the surface
-        // reads as nearly self-lit — the closest PBR can get to the
-        // "lit band" in a cel-shaded ramp without custom shaders.
+        // Emissive floor at 90 % of base colour (C-v1 was 60 %). The
+        // surface is now almost self-lit; only ~10 % of the apparent
+        // tone comes from scene lighting. Closest approximation of the
+        // "fully-lit band" in a cel ramp without a real step function.
         let emissive = emissiveTintHardCel(base: baseColor)
         material.emissiveColor = .init(color: emissive, texture: nil)
         material.emissiveIntensity = 1.0
@@ -335,10 +379,9 @@ public enum ToonMaterialFactory {
     internal static func emissiveTintHardCel(
         base: SIMD3<Float>
     ) -> ToonPlatformColor {
-        // 60 % of base colour, clamped. Empirically tuned against the
-        // spawn-tile preview on iPad — any higher and the emissive
-        // starts washing out the base identity.
-        let factor: Float = 0.6
+        // 90 % of base colour, clamped. C-v2 tuning — empirically close
+        // to "self-lit" without fully washing out the PBR shadow band.
+        let factor: Float = hardCelEmissiveFactor
         let rgb = SIMD3<Float>(
             max(0, min(1, base.x * factor)),
             max(0, min(1, base.y * factor)),
@@ -409,7 +452,7 @@ public enum ToonMaterialFactory {
             )
             #if DEBUG
             print(
-                "[SDG-Lab][toon-shader] setParameter(baseColor) failed: \(error); falling back to PBR scheme C"
+                "[SDG-Lab][toon-shader] setParameter(baseColor) failed: \(error); falling back to PBR scheme C-v2"
             )
             #endif
             return nil
@@ -444,17 +487,27 @@ public enum ToonMaterialFactory {
     ///
     /// The outline is:
     ///   * same mesh as the source,
-    ///   * scaled uniformly by `outlineScale` (1.02 × on every axis),
-    ///   * materials replaced with a single opaque black
-    ///     `PhysicallyBasedMaterial` whose `faceCulling` is `.front`
-    ///     (so only back faces render, producing the "hull" silhouette),
+    ///   * scaled uniformly by `outlineScale` (1.05 × on every axis
+    ///     in C-v2; was 1.02 in C-v1),
+    ///   * materials replaced with a single opaque
+    ///     `PhysicallyBasedMaterial` whose tint is the *complement* of
+    ///     the source's base colour (when known) and whose `faceCulling`
+    ///     is `.front` (so only back faces render, producing the "hull"
+    ///     silhouette),
     ///   * tagged `name = "<source.name>_Outline"` for debuggability.
     ///
     /// - Important: MainActor-isolated because `ModelEntity.clone()`
     ///   and the `components[ModelComponent.self]` setter are MainActor.
+    ///
+    /// - Parameter entity: Source to wrap. Must carry a ModelComponent.
+    /// - Parameter baseColor: Optional tint hint. When provided the
+    ///   outline ink colour is derived from this colour's darkened
+    ///   complement. When `nil` (default / legacy callers), the outline
+    ///   falls back to the C-v1 pure-black ink.
     @MainActor
     public static func makeOutlineEntity(
-        for entity: ModelEntity
+        for entity: ModelEntity,
+        baseColor: SIMD3<Float>? = nil
     ) -> ModelEntity? {
         guard let sourceModel = entity.components[ModelComponent.self] else {
             return nil
@@ -471,7 +524,7 @@ public enum ToonMaterialFactory {
         outline.components.set(
             ModelComponent(
                 mesh: sourceModel.mesh,
-                materials: [makeOutlineMaterial()]
+                materials: [makeOutlineMaterial(baseColor: baseColor)]
             )
         )
 
@@ -489,19 +542,31 @@ public enum ToonMaterialFactory {
 
     // MARK: - Internal helpers (exposed for tests)
 
-    /// Build the pure-black unlit-ish material used by the outline
-    /// hull. Exposed `internal` so tests can assert on
-    /// `faceCulling == .front` without having to instantiate
-    /// `makeOutlineEntity(for:)`.
+    /// Build the unlit-ish material used by the outline hull. Exposed
+    /// `internal` so tests can assert on `faceCulling == .front`
+    /// without having to instantiate `makeOutlineEntity(for:)`.
+    ///
+    /// The tint is:
+    ///   * pure black when `baseColor == nil` (legacy C-v1 behaviour,
+    ///     kept so tests and callers that don't know the base colour
+    ///     still get a usable ink), or
+    ///   * the **darkened complement** of `baseColor` otherwise — so a
+    ///     warm building (base ≈ beige) gets a dark-blue outline and a
+    ///     cool grey terrain gets a dark-brown outline. Darkened to ~25 %
+    ///     of the complement so it still reads as "ink" not "colour
+    ///     border".
     @MainActor
-    internal static func makeOutlineMaterial() -> PhysicallyBasedMaterial {
+    internal static func makeOutlineMaterial(
+        baseColor: SIMD3<Float>? = nil
+    ) -> PhysicallyBasedMaterial {
         var m = PhysicallyBasedMaterial()
-        // Black tint + 1.0 roughness + no metallic = matte black. The
-        // outline should not pick up scene lighting; setting emissive
-        // to black *and* keeping roughness/metallic neutral keeps PBR
-        // evaluation cheap while reading as "ink".
-        m.baseColor = .init(tint: .black, texture: nil)
-        m.emissiveColor = .init(color: .black, texture: nil)
+        let ink = outlineInkColor(for: baseColor)
+        m.baseColor = .init(tint: ink, texture: nil)
+        m.emissiveColor = .init(color: ink, texture: nil)
+        // Emissive at ~30 % of the ink so the outline stays readable
+        // even when scene lighting dies (night-time / interior). Full
+        // self-emissive would destroy the "ink stroke" metaphor.
+        m.emissiveIntensity = 0.3
         m.roughness = .init(floatLiteral: 1.0)
         m.metallic = .init(floatLiteral: 0.0)
         // Cull *front* faces → only back faces render → we see the
@@ -509,6 +574,30 @@ public enum ToonMaterialFactory {
         // is the outline.
         m.faceCulling = .front
         return m
+    }
+
+    /// Derive the outline ink colour. Pure black for nil input
+    /// (legacy), darkened-complement for a real base colour. Exposed
+    /// internal so tests can pin the exact formula.
+    internal static func outlineInkColor(
+        for baseColor: SIMD3<Float>?
+    ) -> ToonPlatformColor {
+        guard let base = baseColor else {
+            return ToonPlatformColor.black
+        }
+        let complement = SIMD3<Float>(
+            1.0 - base.x, 1.0 - base.y, 1.0 - base.z
+        )
+        // Darken to 25 % so it reads as ink, not as a coloured border.
+        // Empirically: anything brighter than ~40 % looks like a halo
+        // on PLATEAU buildings in the M5 simulator.
+        let factor: Float = 0.25
+        let rgb = SIMD3<Float>(
+            max(0, min(1, complement.x * factor)),
+            max(0, min(1, complement.y * factor)),
+            max(0, min(1, complement.z * factor))
+        )
+        return platformColor(from: rgb)
     }
 
     /// Compute the emissive tint for a layer, given its base colour
@@ -519,9 +608,12 @@ public enum ToonMaterialFactory {
         base: SIMD3<Float>,
         strength: Float
     ) -> ToonPlatformColor {
-        // Factor chosen empirically (35 %); see doc comment on
-        // `makeLayerMaterial`.
-        let factor: Float = 0.35 * max(minStrength, min(maxStrength, strength))
+        // C-v2 raises the soft-cel emissive from 0.35 → 0.5 so shadow
+        // bands don't read muddy. `strength` still scales the factor
+        // linearly so call sites can dial the toon feel down toward
+        // PBR at their own discretion.
+        let factor: Float = softCelEmissiveFactor
+            * max(minStrength, min(maxStrength, strength))
         let rgb = SIMD3<Float>(
             max(0, min(1, base.x * factor)),
             max(0, min(1, base.y * factor)),
@@ -531,6 +623,24 @@ public enum ToonMaterialFactory {
     }
 
     // MARK: - Colour bridge
+
+    /// Multiply every channel by `saturationBoost`, clamped. A perfect
+    /// saturation boost would go through HSV; this channel-wise gain is
+    /// a deliberate simplification — for the earthy palette SDG-Lab
+    /// uses (browns, greys, greens) the difference is imperceptible and
+    /// channel-wise is trivially testable (you can check the result per
+    /// component, see `testSaturationBoostMultipliesChannels`).
+    /// Exposed `internal` for the same reason.
+    internal static func saturationBoosted(
+        _ rgb: SIMD3<Float>
+    ) -> SIMD3<Float> {
+        let b = saturationBoost
+        return SIMD3<Float>(
+            max(0, min(1, rgb.x * b)),
+            max(0, min(1, rgb.y * b)),
+            max(0, min(1, rgb.z * b))
+        )
+    }
 
     /// Clamp + convert a 0…1 SIMD3 into the platform colour type.
     /// Matches the behaviour of `GeologySceneBuilder.platformColor(from:)`
