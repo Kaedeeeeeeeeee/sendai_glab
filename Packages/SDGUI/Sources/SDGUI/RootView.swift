@@ -724,11 +724,25 @@ public struct RootView: View {
             let player = sceneRefs.playerEntity,
             let lab = labInteriorEntity
         else { return }
+        // Phase 9 Part F+G: the lab lives at world origin so the
+        // existing `indoorFloorY = 0` short-circuit in
+        // `PlayerControlSystem.snapToGround` works without any
+        // lab-local↔world conversion. But the DEM terrain + PLATEAU
+        // corridor also live at world origin and visibly punch
+        // through the lab walls when both are rendered. So on
+        // transition we flip both outdoor scenes off (or back on)
+        // together with the lab. The outdoor portal frame stays
+        // visible inside the lab room but the player can't see it
+        // from inside — it's outside the 10 × 4 × 8 m box.
         switch event.to {
         case .outdoor:
             lab.isEnabled = false
+            sceneRefs.loadedTerrain?.isEnabled = true
+            sceneRefs.environmentRoot?.isEnabled = true
         case .indoor:
             lab.isEnabled = true
+            sceneRefs.loadedTerrain?.isEnabled = false
+            sceneRefs.environmentRoot?.isEnabled = false
         }
         player.position = event.spawnPoint
         player.components.set(LocationComponent(event.to))
