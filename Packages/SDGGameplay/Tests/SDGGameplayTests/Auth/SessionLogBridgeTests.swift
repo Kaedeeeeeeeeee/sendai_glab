@@ -1,11 +1,8 @@
 // SessionLogBridgeTests.swift
 // SDGGameplayTests · Auth
 //
-// Exercises the AppSessionStarted / UserSignedIn → logSession
-// plumbing with a recording telemetry writer. Each test wires its
-// own bridge so we can control which events the recorder sees
-// (signing in also publishes UserSignedIn, which would add noise to
-// AppSessionStarted-focused assertions).
+// Exercises the AppSessionStarted → logSession plumbing with a
+// recording telemetry writer.
 
 import XCTest
 import Foundation
@@ -37,7 +34,7 @@ final class SessionLogBridgeTests: XCTestCase {
 
     // MARK: - Subscription count
 
-    func testStartInstallsTwoSubscriptions() async {
+    func testStartInstallsOneSubscription() async {
         let store = AuthStore(eventBus: bus, authService: NoopAuthProvider())
         let bridge = SessionLogBridge(
             eventBus: bus,
@@ -45,7 +42,7 @@ final class SessionLogBridgeTests: XCTestCase {
             telemetry: RecordingTelemetryWriter()
         )
         await bridge.start()
-        XCTAssertEqual(bridge.subscriptionCount, 2)
+        XCTAssertEqual(bridge.subscriptionCount, 1)
         await bridge.stop()
     }
 
@@ -109,26 +106,6 @@ final class SessionLogBridgeTests: XCTestCase {
         await bridge.stop()
     }
 
-    // MARK: - UserSignedIn catch-up
-
-    func testUserSignedInLogsASessionRow() async {
-        let store = AuthStore(eventBus: bus, authService: NoopAuthProvider())
-        let telemetry = RecordingTelemetryWriter()
-        let bridge = SessionLogBridge(
-            eventBus: bus, authStore: store, telemetry: telemetry
-        )
-        await bridge.start()
-
-        let uid = UUID()
-        await bus.publish(UserSignedIn(userId: uid))
-        await drain()
-
-        let rows = await telemetry.rows
-        XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows.first?.userId, uid)
-
-        await bridge.stop()
-    }
 }
 
 // MARK: - Fakes

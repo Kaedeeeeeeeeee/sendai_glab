@@ -47,6 +47,38 @@ struct ContentView: View {
                 // Apple.
                 await authStore.intent(.restoreOnLaunch)
             }
+            // Cold-launch session trigger. `SendaiGLabApp`'s
+            // `scenePhase → .active` observer does not fire on the
+            // initial render (the scene starts active, there is no
+            // "change"). This hook catches that case by publishing
+            // exactly one `AppSessionStarted` when `currentUserId`
+            // transitions from `nil` → a real user id — i.e. the
+            // moment `restoreOnLaunch` succeeds OR a fresh Sign in
+            // with Apple completes. The `non-nil → nil` transition
+            // from sign-out is ignored by the `guard`.
+            //
+            // Foreground-from-background is handled by the scene-
+            // phase observer; `currentUserId` stays non-nil across
+            // that transition so this handler does not re-fire. No
+            // overlap with the scene-phase path.
+            .onChange(of: authStore.currentUserId) { _, new in
+                guard new != nil else { return }
+                let event = AppSessionStarted(
+                    at: Date(),
+                    osVersion: Self.currentOSVersion(),
+                    locale: Locale.current.identifier
+                )
+                let bus = environment.eventBus
+                Task { await bus.publish(event) }
+            }
+    }
+
+    /// iPadOS version string (e.g. `"18.3"`). Duplicated from
+    /// `SendaiGLabApp` because the two publishers live in different
+    /// layers and sharing one helper would pull UIKit into SDGCore.
+    private static func currentOSVersion() -> String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
     }
 
     /// Binding the cover observes. `get` drives presentation;
