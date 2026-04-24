@@ -216,11 +216,15 @@ public final class TerrainLoader {
             EnvironmentCenterer.centerHorizontallyAndGroundY(entity)
         }
 
-        // Mud-olive base colour for "dirt with a hint of grass". Chosen
-        // so the ground reads as sitting *under* the buildings'
-        // warm palette rather than competing with it. Hand-tuned on
-        // real-device preview; see CLAUDE.md Phase 3 progress notes.
-        Self.applyTerrainMaterial(
+        // Phase 11 Part E: the DEM USDZ now ships with an embedded
+        // GSI orthophoto (stitched by download_gsi_ortho.sh, baked in
+        // by dem_to_terrain_usdz.py). The hybrid tint preserves the
+        // textured PhysicallyBasedMaterial and pushes it toward the
+        // painted-cel look via ToonMaterialFactory.mutateIntoTexturedCel;
+        // any non-textured slot (pre-Phase-11 USDZ, tests, legacy
+        // pipelines) falls back to the flat hard-cel material using
+        // `defaultTerrainColor`.
+        Self.applyHybridTerrainTint(
             toDescendantsOf: entity,
             baseColor: Self.defaultTerrainColor
         )
@@ -415,45 +419,90 @@ public final class TerrainLoader {
 
     // MARK: - Material
 
-    /// Walk the entity tree and replace every `ModelComponent`'s
-    /// materials with the Toon-shaded terrain material. Mirrors
-    /// `PlateauEnvironmentLoader.applyToonMaterial` — kept here (not
-    /// reused) because terrain uses a single colour rather than a
-    /// per-tile palette, and forcing it through the building loader's
-    /// API would imply a `PlateauTile` the terrain doesn't have.
+    /// Walk the entity tree and apply a **hybrid** Toon tint to every
+    /// `ModelComponent`'s material slots:
+    ///
+    /// * If a slot already holds a textured `PhysicallyBasedMaterial`
+    ///   (Phase 11 Part E bakes a GSI orthophoto into the DEM USDZ),
+    ///   mutate it in place via
+    ///   `ToonMaterialFactory.mutateIntoTexturedCel(_:)`. The
+    ///   orthophoto survives into the render; emissive is boosted,
+    ///   specular is killed so the ground reads painted-realistic
+    ///   rather than raw PBR.
+    ///
+    /// * Otherwise (no texture — legacy USDZ, unit-test fixtures,
+    ///   `SimpleMaterial`), replace the slot with
+    ///   `ToonMaterialFactory.makeHardCelMaterial(baseColor:)` using
+    ///   the `defaultTerrainColor` mud-olive so the ground still reads
+    ///   as earthy brown/green even without an orthophoto.
+    ///
+    /// Mirrors `PlateauEnvironmentLoader.applyHybridToonTint` (Phase
+    /// 11 Part D). Kept as a separate method here (not reused) because
+    /// terrain uses a single fallback colour rather than the
+    /// per-tile palette the bldg loader threads through, and forcing
+    /// that loader's API onto the terrain would imply a `PlateauTile`
+    /// the terrain doesn't have.
     ///
     /// Exposed `internal` so tests can exercise the material swap on a
     /// synthetic entity without going through `load()`.
     @MainActor
-    internal static func applyTerrainMaterial(
+    internal static func applyHybridTerrainTint(
         toDescendantsOf root: Entity,
         baseColor: SIMD3<Float>
     ) {
-        // Harder cel variant (Phase 3 upgrade, preserved into Phase 4):
-        // terrain reads as clearly cartoonish rather than a realistic-
-        // with-toon-tint ground. See `ToonMaterialFactory
-        // .makeHardCelMaterial` header for the difference vs. the
-        // softer `makeLayerMaterial`.
-        let material = ToonMaterialFactory.makeHardCelMaterial(
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
             baseColor: baseColor
         )
 
-        // Explicit iterative walk — mirrors PlateauEnvironmentLoader
-        // to keep the visual contract identical between buildings and
-        // terrain (same strength, same factory). Recursing into the
-        // built-in tree can blow the stack on dense meshes; an explicit
-        // stack keeps us flat.
+        // Explicit iterative walk — recursing into the built-in tree
+        // can blow the stack on dense meshes; an explicit stack keeps
+        // us flat.
         var stack: [Entity] = [root]
         while let current = stack.popLast() {
             if var modelComponent = current.components[ModelComponent.self] {
                 let count = max(1, modelComponent.materials.count)
-                modelComponent.materials = Array(
-                    repeating: material,
-                    count: count
-                )
+                var newSlots: [RealityKit.Material] = []
+                newSlots.reserveCapacity(count)
+                for index in 0..<count {
+                    let existing: RealityKit.Material? =
+                        index < modelComponent.materials.count
+                        ? modelComponent.materials[index]
+                        : nil
+                    newSlots.append(
+                        hybridTerrainMaterial(
+                            for: existing,
+                            fallback: fallback
+                        )
+                    )
+                }
+                modelComponent.materials = newSlots
                 current.components.set(modelComponent)
             }
             stack.append(contentsOf: current.children)
         }
+    }
+
+    /// Branch predicate for `applyHybridTerrainTint`. Returns the
+    /// mutator output when `existing` is a textured PBR material,
+    /// otherwise the fallback. Mirrors
+    /// `PlateauEnvironmentLoader.hybridTintedMaterial`; deliberately
+    /// duplicated rather than hoisted into a shared helper so each
+    /// loader owns its branch policy (terrain's fallback is mud-olive;
+    /// buildings' fallback is a per-tile warm palette).
+    ///
+    /// Exposed `internal` so `TerrainLoaderTests` can exercise branch
+    /// selection without constructing a full entity hierarchy.
+    @MainActor
+    internal static func hybridTerrainMaterial(
+        for existing: RealityKit.Material?,
+        fallback: RealityKit.Material
+    ) -> RealityKit.Material {
+        guard let pbr = existing as? PhysicallyBasedMaterial else {
+            return fallback
+        }
+        guard pbr.baseColor.texture != nil else {
+            return fallback
+        }
+        return ToonMaterialFactory.mutateIntoTexturedCel(pbr)
     }
 }
