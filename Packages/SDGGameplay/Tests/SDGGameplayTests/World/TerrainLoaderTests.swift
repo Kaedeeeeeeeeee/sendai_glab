@@ -273,4 +273,145 @@ final class TerrainLoaderTests: XCTestCase {
             XCTFail("Expected TerrainLoader.LoadError, got \(type(of: error))")
         }
     }
+
+    // MARK: - Phase 11 Part E: hybrid tint (orthophoto-aware)
+
+    /// Same-shape helper as `ToonMaterialFactoryTests.makeTinyWhiteTexture`
+    /// — builds a 1×1 sRGB `TextureResource` off a `CGContext` so the
+    /// test doesn't depend on a Metal device. Returns `nil` when the
+    /// image stack is unavailable on the host (CI without colour
+    /// spaces); callers skip via `XCTSkipIf`.
+    private func makeTinyWhiteTexture() throws -> TextureResource? {
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: cs,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        guard let cg = ctx.makeImage() else { return nil }
+        do {
+            return try TextureResource(
+                image: cg,
+                options: TextureResource.CreateOptions(semantic: .color)
+            )
+        } catch {
+            print(
+                "[SDG-Lab][terrain-test] TextureResource.init skipped: \(error)"
+            )
+            return nil
+        }
+    }
+
+    /// A textured `PhysicallyBasedMaterial` fed to
+    /// `hybridTerrainMaterial` must come back as a PBR material with
+    /// the **same texture resource** — the orthophoto survival path.
+    /// Mirrors `ToonMaterialFactoryTests
+    /// .testMutateIntoTexturedCelPreservesBaseColorTexture`, but
+    /// dispatched through the loader's branch predicate so a future
+    /// refactor that bypasses `mutateIntoTexturedCel` is caught here
+    /// rather than drifting silently.
+    func testHybridTerrainMaterialPreservesOrthophotoTexture() throws {
+        let texture = try makeTinyWhiteTexture()
+        try XCTSkipIf(
+            texture == nil,
+            "CGImage/TextureResource unavailable on host; not a factory bug."
+        )
+        let resource = texture!
+
+        var textured = PhysicallyBasedMaterial()
+        textured.baseColor = .init(tint: .white, texture: .init(resource))
+        XCTAssertNotNil(textured.baseColor.texture, "setup check")
+
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: TerrainLoader.defaultTerrainColor
+        )
+        let output = TerrainLoader.hybridTerrainMaterial(
+            for: textured,
+            fallback: fallback
+        )
+
+        let outputPBR = try XCTUnwrap(
+            output as? PhysicallyBasedMaterial,
+            "textured input must produce a PBR output (mutator path)"
+        )
+        let outputResource = try XCTUnwrap(
+            outputPBR.baseColor.texture?.resource,
+            "orthophoto texture must survive the hybrid predicate"
+        )
+        // `TextureResource` is Equatable — same contents = same
+        // texture for rendering purposes, which is all the hybrid
+        // predicate promises.
+        XCTAssertEqual(
+            outputResource,
+            resource,
+            "hybrid predicate must keep the exact orthophoto resource"
+        )
+    }
+
+    /// An *untextured* PBR material (e.g. a legacy Phase-3 USDZ that
+    /// has a material slot but no baked orthophoto) must fall through
+    /// to the flat `fallback` cel — preserving the mud-olive ground
+    /// for pipelines that haven't re-run Part E yet.
+    func testHybridTerrainMaterialFallsBackForUntexturedPBR() throws {
+        var untextured = PhysicallyBasedMaterial()
+        untextured.baseColor = .init(tint: .gray, texture: nil)
+
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: TerrainLoader.defaultTerrainColor
+        )
+        let output = TerrainLoader.hybridTerrainMaterial(
+            for: untextured,
+            fallback: fallback
+        )
+
+        // The fallback is value-semantic; identity via ObjectIdentifier
+        // doesn't apply. We assert by walking both as
+        // `PhysicallyBasedMaterial`s (the factory returns Scheme C-v2
+        // PBR in test mode) and comparing emissive intensity, which
+        // hard-cel sets but the untextured input does not.
+        let outputPBR = try XCTUnwrap(
+            output as? PhysicallyBasedMaterial,
+            "fallback path must be a PBR hard-cel"
+        )
+        // Untextured input had no emissive tint; hard-cel sets a warm
+        // emissive colour — the output should carry the latter.
+        XCTAssertNotNil(
+            outputPBR.emissiveColor.color,
+            "fallback must carry the hard-cel emissive colour"
+        )
+        XCTAssertNil(
+            outputPBR.baseColor.texture,
+            "fallback path must not invent a texture"
+        )
+    }
+
+    /// A non-PBR material (SimpleMaterial, any third-party) must also
+    /// fall back — proving the hybrid predicate's `as?` guard is the
+    /// one and only point where the mutator is allowed.
+    func testHybridTerrainMaterialFallsBackForNonPBRInput() {
+        let simple: RealityKit.Material = SimpleMaterial(
+            color: .gray, isMetallic: false
+        )
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: TerrainLoader.defaultTerrainColor
+        )
+        let output = TerrainLoader.hybridTerrainMaterial(
+            for: simple,
+            fallback: fallback
+        )
+        // The fallback branch returns `fallback` by value; assert
+        // we're looking at a PBR (the factory's Scheme C-v2) rather
+        // than the SimpleMaterial that came in.
+        XCTAssertNotNil(
+            output as? PhysicallyBasedMaterial,
+            "non-PBR input must fall through to the hard-cel PBR"
+        )
+    }
 }
