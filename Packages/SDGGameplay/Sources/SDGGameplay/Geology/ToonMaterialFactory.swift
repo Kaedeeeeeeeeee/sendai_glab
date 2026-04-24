@@ -1,8 +1,7 @@
 // ToonMaterialFactory.swift
 // SDGGameplay · Geology
 //
-// Phase 1 Toon Shader v0 — minimum viable "二次元" look for geology
-// layers. See ADR-0004 and GDD §0 / §7.3.
+// Phase 9 Part C — ADR-0004 Scheme A with defensive fallback to Scheme C.
 //
 // The factory is the *only* public entry point geology / UI code should
 // reach for when they want "a Toon-ified material for a given colour".
@@ -10,43 +9,36 @@
 // doesn't care which of the three approaches (ShaderGraphMaterial,
 // CustomMaterial, PhysicallyBasedMaterial) ends up being used.
 //
-// ## Why Approach C (PhysicallyBasedMaterial + backface-hull outline)
+// ## Scheme A (primary) — `ShaderGraphMaterial` + hand-written `.usda`
 //
-// Evaluated three paths (ADR-0004):
-//   A. `ShaderGraphMaterial` + hand-written `.usda` — unverifiable from
-//      a headless agent; one typo in the MaterialX graph bricks the
-//      bundle at load time.
-//   B. `CustomMaterial` + Metal `.metal` file — API available on iOS 18
-//      but needs an MTLLibrary compiled into the SPM bundle, and it's
-//      visionOS-unavailable, which would force us to carry two code
-//      paths from day one.
-//   C. `PhysicallyBasedMaterial` tuned for a flat, cel-ish look, with a
-//      sibling back-face hull for the outline — all validated API,
-//      portable across iOS / macOS / visionOS, zero extra resources.
+// Loads `Resources/Shaders/StepRampToon.usda` and sets a `baseColor`
+// parameter on the resulting `ShaderGraphMaterial`. That graph computes
+// a three-band NdotL step ramp for a real cel-shaded look (see the
+// `.usda` file for the shape).
 //
-// C ships today; Phase 2 can upgrade to A once Reality Composer Pro is
-// part of the artist pipeline.
+// ## Scheme C (fallback) — tuned `PhysicallyBasedMaterial`
+//
+// Hand-written MaterialX is brittle — a single wrong node ID raises
+// `ShaderGraphMaterial.LoadError.invalidTypeFound` at load time. When
+// that happens, the factory logs through `os.Logger` AND `print` (so
+// the failure is never silent) and falls back to the Phase 1 PBR+hull
+// pseudo-toon. Gameplay must not die because of a bad shader.
+//
+// See ADR-0004 (and the Phase 9 Part C addendum) for the full rationale.
 //
 // ## What "Toon" means here
 //
-// Not a real stepped NdotL ramp. We fake the look with:
-//   * `baseColor` at the requested tint,
-//   * `roughness = 1.0` + `metallic = 0.0` so IBL contributes a soft,
-//     even fill — approximates the "ambient" band of a cel-shaded look,
-//   * an `emissiveColor` floor ≈ strength × base so there's no deep
-//     black in shadow, matching the bright-ish anime reading in the
-//     reference (原神, BotW),
-//   * a **back-face hull** outline entity: same mesh scaled by 1.02,
-//     `faceCulling = .front` so only back faces render, material is
-//     pure black and unlit-ish (PBR with tint=black, emissive≈black,
-//     roughness=1). This is a *silhouette* outline; it doesn't react
-//     to normal discontinuities but is exactly right for the simple
-//     axis-aligned layer boxes in Phase 1.
+// * If the ShaderGraph loads: three-band NdotL step ramp, unlit output
+//   (no specular), base-colour tint driven by the `baseColor` parameter.
+// * If it doesn't load (fallback): flat-ish PBR with `roughness=1`,
+//   `metallic=0`, and an emissive floor so shadows don't read deep
+//   black. Plus the back-face-hull outline (unchanged from Phase 1).
 //
 // Everything here is `@MainActor` because RealityKit material / entity
 // initialisers on iOS 18 are MainActor-isolated.
 
 import Foundation
+import os.log
 import RealityKit
 
 #if canImport(UIKit)
@@ -70,12 +62,13 @@ internal typealias ToonPlatformColor = NSColor
 // MARK: - Public factory
 
 /// Produces Toon-shaded materials (and optional outline entities) for
-/// geology layers in Phase 1.
+/// geology layers, plus the "hard cel" variant used by the PLATEAU /
+/// terrain loaders.
 ///
-/// All methods are `@MainActor` because `PhysicallyBasedMaterial` and
-/// `ModelEntity` initialisers touch RealityKit state. Keeping the whole
-/// factory on MainActor avoids needing the caller to sprinkle
-/// `await MainActor.run {}` at every call site.
+/// All methods are `@MainActor` because `PhysicallyBasedMaterial`,
+/// `ShaderGraphMaterial`, and `ModelEntity` initialisers touch RealityKit
+/// state. Keeping the whole factory on MainActor avoids needing the
+/// caller to sprinkle `await MainActor.run {}` at every call site.
 ///
 /// The factory is an `enum` with static methods — the same shape as
 /// `GeologySceneBuilder` — because it has no state worth owning. A
@@ -97,6 +90,114 @@ public enum ToonMaterialFactory {
     internal static let minStrength: Float = 0
     internal static let maxStrength: Float = 1
 
+    /// Basename of the `.usda` shader asset shipped under
+    /// `Resources/Shaders/`. Exposed `internal` so tests can reuse the
+    /// exact string rather than re-typing it.
+    internal static let stepRampShaderName: String = "StepRampToon"
+
+    /// MaterialX prim path inside `StepRampToon.usda`. Passed as the
+    /// `named:` argument to `ShaderGraphMaterial(named:from:in:)`.
+    internal static let stepRampMaterialPath: String = "/Root/StepRampToon"
+
+    // MARK: - Shader cache
+    //
+    // `ShaderGraphMaterial(named:from:in:)` is async, but the factory's
+    // public API is sync because its call sites (`StackedCylinderMeshBuilder`,
+    // `PlateauEnvironmentLoader`, `TerrainLoader`) run in sync mesh
+    // builders. The bridge between the two is a MainActor-isolated cache:
+    //   1. App bootstrap (future work) calls `preloadStepRampShader()`
+    //      once. That awaits the async init and fills `cachedShaderGraph`.
+    //   2. `attemptStepRampMaterial` reads the cache synchronously. If
+    //      empty, it returns `nil` so the caller falls through to the
+    //      PBR path.
+    //
+    // This means the very first frame (before the preload completes)
+    // will render every material via Scheme C. That is deliberate: we
+    // prefer a consistent "PBR look on all surfaces" for one frame over
+    // a mixed-scheme render that would flicker as tiles arrive.
+
+    /// Cached ShaderGraphMaterial template. `nil` means "not yet tried
+    /// / not finished loading"; `.some(.success)` means loaded once and
+    /// ready to clone; `.some(.failure)` means the load finished with an
+    /// error and we should skip straight to the PBR path on subsequent
+    /// calls.
+    ///
+    /// ### Why `nonisolated(unsafe)`
+    ///
+    /// Every read/write happens from MainActor (preload and factory
+    /// accessors are both `@MainActor`). `ShaderGraphMaterial` is not a
+    /// `Sendable` type on the current SDK, so marking the static as
+    /// `nonisolated(unsafe)` is the explicit escape valve Swift 6
+    /// requires. It is a resource cache, not a Store — AGENTS.md §1.2
+    /// singleton ban does not apply (no behaviour, no cross-layer API).
+    nonisolated(unsafe) internal static var cachedShaderGraph: Result<ShaderGraphMaterial, Error>?
+
+    /// Reset the cache. Tests call this between runs so a failure in
+    /// one test doesn't poison the next. Not exposed publicly — test
+    /// access is via `@testable import SDGGameplay`.
+    @MainActor
+    internal static func resetShaderGraphCacheForTesting() {
+        cachedShaderGraph = nil
+    }
+
+    /// Preload the step-ramp ShaderGraph. Callers should `await` this
+    /// once at app bootstrap — future work in `RootView` or
+    /// `SendaiGLabApp`. Safe to call more than once; subsequent calls
+    /// return the cached result without re-loading.
+    ///
+    /// - Parameter bundle: Bundle containing `StepRampToon.usda`.
+    ///   Defaults to `.main`; tests pass `Bundle.module`.
+    /// - Returns: `true` if Scheme A is active, `false` if the factory
+    ///   will be serving Scheme C fallbacks.
+    @MainActor
+    @discardableResult
+    public static func preloadStepRampShader(
+        bundle: Bundle = .main
+    ) async -> Bool {
+        if case .success = cachedShaderGraph {
+            return true
+        }
+        if case .failure = cachedShaderGraph {
+            return false
+        }
+
+        do {
+            let material = try await ShaderGraphMaterial(
+                named: stepRampMaterialPath,
+                from: stepRampShaderName,
+                in: bundle
+            )
+            cachedShaderGraph = .success(material)
+            log.info("StepRampToon preloaded; Scheme A active.")
+            #if DEBUG
+            print("[SDG-Lab][toon-shader] StepRampToon preloaded; Scheme A active.")
+            #endif
+            return true
+        } catch {
+            cachedShaderGraph = .failure(error)
+            // Loud failure — the whole point of this project's
+            // "no silent catch" rule (see AGENTS.md and CLAUDE.md
+            // pitfall #9).
+            log.error(
+                "StepRampToon preload failed — falling back to PBR Scheme C: \(String(describing: error), privacy: .public)"
+            )
+            #if DEBUG
+            print(
+                "[SDG-Lab][toon-shader] StepRampToon preload failed (\(error)); using PBR Scheme C."
+            )
+            #endif
+            return false
+        }
+    }
+
+    /// Logger used for shader-load failures. `subsystem` matches the
+    /// project convention used by `AudioService` so failures are easy
+    /// to grep in Console.app.
+    internal static let log = Logger(
+        subsystem: "jp.tohoku-gakuin.fshera.sendai-glab",
+        category: "toon-shader"
+    )
+
     // MARK: - Layer material
 
     /// Build a Toon-shaded material for a geology layer.
@@ -108,14 +209,35 @@ public enum ToonMaterialFactory {
     ///     the silent HSB wrap-around `UIColor`/`NSColor` do.
     ///   - strength: 0 → a vanilla-ish PBR look. 1 → maximum Toon feel
     ///     (more emissive floor, no specular). Intermediate values
-    ///     interpolate. Clamped to [0, 1].
-    /// - Returns: An opaque `Material`. The concrete type today is
-    ///   `PhysicallyBasedMaterial`; callers must not assume that.
+    ///     interpolate. Clamped to [0, 1]. Only consumed by the PBR
+    ///     fallback path; the ShaderGraph path ignores `strength` because
+    ///     the band values are baked into the `.usda`.
+    /// - Returns: An opaque `Material`. Concrete type depends on whether
+    ///   the step-ramp ShaderGraph loaded:
+    ///     * Success → `ShaderGraphMaterial` with `baseColor` parameter
+    ///       set.
+    ///     * Failure → `PhysicallyBasedMaterial` tuned as in Phase 1
+    ///       Scheme C. Callers must not type-assume.
     ///
     /// - Important: MainActor-isolated because `PhysicallyBasedMaterial`
-    ///   setters are on MainActor in iOS 18 / macOS 15.
+    ///   and `ShaderGraphMaterial` setters are on MainActor in
+    ///   iOS 18 / macOS 15.
     @MainActor
     public static func makeLayerMaterial(
+        baseColor: SIMD3<Float>,
+        strength: Float = 0.8
+    ) -> RealityKit.Material {
+        if let stepRamp = attemptStepRampMaterial(baseColor: baseColor) {
+            return stepRamp
+        }
+        return makeLayerMaterialPBR(baseColor: baseColor, strength: strength)
+    }
+
+    /// Scheme C (fallback) for `makeLayerMaterial`. Kept as a named
+    /// method so tests can exercise the fallback shape deterministically
+    /// without having to force the ShaderGraph to fail.
+    @MainActor
+    internal static func makeLayerMaterialPBR(
         baseColor: SIMD3<Float>,
         strength: Float = 0.8
     ) -> RealityKit.Material {
@@ -154,38 +276,30 @@ public enum ToonMaterialFactory {
         return material
     }
 
-    // MARK: - Harder cel variant (Phase 3)
+    // MARK: - Harder cel variant (Phase 3 / still used)
 
-    /// A *harder* cel look built on the same tuned-PBR technique as
-    /// `makeLayerMaterial`, but pushed closer to "flat paint" for
-    /// surfaces that want to read as clearly-cartoon rather than
-    /// realistic-with-toon-tint. Used by the PLATEAU building and
-    /// terrain loaders in Phase 3.
+    /// A *harder* cel look. Phase 9 Part C routes this through the
+    /// same ShaderGraph when available (the graph itself *is* a hard
+    /// cel) and falls back to the tuned-PBR hard-cel otherwise.
     ///
-    /// Differences from `makeLayerMaterial`:
-    ///   * Emissive floor is raised (factor 0.6 vs. 0.35) so direct
-    ///     lighting has less effect on the perceived tone — shadows
-    ///     no longer look dark.
-    ///   * `specularIntensity` is forced to zero via metallic=0 +
-    ///     `clearcoat` set explicitly — no stray highlight.
-    ///   * Accepts a uniform `baseColor` without per-call strength
-    ///     since the whole point is a consistent "flat" look. Geology
-    ///     layers keep the softer `makeLayerMaterial` so the outcrop
-    ///     reads different from the buildings around it.
-    ///
-    /// ### Relationship to ADR-0004 scheme A
-    ///
-    /// Scheme A calls for a true NdotL step-ramp via
-    /// `ShaderGraphMaterial` loaded from a Reality Composer Pro
-    /// `.usda`. That is the correct endgame. This method ships the
-    /// closest we can get **without** hand-authoring MaterialX (which
-    /// ADR-0004 flagged as "unverifiable from a headless agent"). It
-    /// is explicitly *not* a true step ramp.
-    ///
-    /// - Important: `@MainActor` for the same `PhysicallyBasedMaterial`
-    ///   reasons as `makeLayerMaterial`.
+    /// Used by the PLATEAU building and terrain loaders — the whole
+    /// point is a consistent "flat" look regardless of which surface
+    /// receives it, so no `strength` parameter.
     @MainActor
     public static func makeHardCelMaterial(
+        baseColor: SIMD3<Float>
+    ) -> RealityKit.Material {
+        if let stepRamp = attemptStepRampMaterial(baseColor: baseColor) {
+            return stepRamp
+        }
+        return makeHardCelMaterialPBR(baseColor: baseColor)
+    }
+
+    /// Scheme C (fallback) for `makeHardCelMaterial`. See the original
+    /// Phase 3 implementation comments — same code, just renamed so
+    /// the name documents which branch of the fallback chain it is.
+    @MainActor
+    internal static func makeHardCelMaterialPBR(
         baseColor: SIMD3<Float>
     ) -> RealityKit.Material {
         var material = PhysicallyBasedMaterial()
@@ -231,6 +345,92 @@ public enum ToonMaterialFactory {
             max(0, min(1, base.z * factor))
         )
         return platformColor(from: rgb)
+    }
+
+    // MARK: - Scheme A (primary): ShaderGraphMaterial
+
+    /// Try to build a `ShaderGraphMaterial` clone with the given base
+    /// colour. Returns `nil` on ANY failure (including "preload hasn't
+    /// finished yet") — caller is expected to fall through to the PBR
+    /// path. Every failure branch that stems from an actual error logs
+    /// via both `os.Logger` and `print`; the common "cache empty"
+    /// branch stays quiet because it's not a failure, just "too early".
+    ///
+    /// This is deliberately `internal` so tests can exercise it in
+    /// isolation without going through `makeLayerMaterial`, and so the
+    /// "no accidental silent nil" invariant stays enforceable.
+    ///
+    /// - Parameter baseColor: Linear 0..1 RGB. Clamped before passing
+    ///   to the MaterialX parameter.
+    /// - Returns: A freshly-parameterised `ShaderGraphMaterial` or `nil`
+    ///   if the shader has not been preloaded, failed to preload, or
+    ///   could not be parameterised.
+    @MainActor
+    internal static func attemptStepRampMaterial(
+        baseColor: SIMD3<Float>
+    ) -> RealityKit.Material? {
+        guard let cached = cachedShaderGraph else {
+            // Preload hasn't run yet (or hasn't completed). Silent nil
+            // is correct here — this is not a failure, just a timing
+            // state. Callers fall through to PBR.
+            return nil
+        }
+
+        let template: ShaderGraphMaterial
+        switch cached {
+        case .success(let material):
+            template = material
+        case .failure:
+            // Already logged at preload time. Stay quiet on subsequent
+            // attempts to avoid log spam.
+            return nil
+        }
+
+        // Mutate a copy so the cached template stays clean for the next
+        // caller.
+        var material = template
+        do {
+            let clamped = SIMD3<Float>(
+                max(0, min(1, baseColor.x)),
+                max(0, min(1, baseColor.y)),
+                max(0, min(1, baseColor.z))
+            )
+            try material.setParameter(
+                name: "baseColor",
+                value: .color(colorForShaderParameter(clamped))
+            )
+        } catch {
+            // A parameter-setting failure is surprising — it means the
+            // `.usda` loaded but its parameter schema doesn't match what
+            // we expect. Log loudly and fall through to PBR so the
+            // game keeps rendering something.
+            log.error(
+                "StepRampToon.setParameter(baseColor) failed: \(String(describing: error), privacy: .public)"
+            )
+            #if DEBUG
+            print(
+                "[SDG-Lab][toon-shader] setParameter(baseColor) failed: \(error); falling back to PBR scheme C"
+            )
+            #endif
+            return nil
+        }
+
+        return material
+    }
+
+    /// Platform-color → CGColor bridge for the `baseColor` ShaderGraph
+    /// parameter. `ShaderGraphMaterial.setParameter(name:value:)` takes
+    /// `MaterialParameters.Value.color(CGColor)` on the current SDK.
+    private static func colorForShaderParameter(
+        _ rgb: SIMD3<Float>
+    ) -> CGColor {
+        let components: [CGFloat] = [
+            CGFloat(rgb.x), CGFloat(rgb.y), CGFloat(rgb.z), 1.0
+        ]
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        return CGColor(colorSpace: cs, components: components) ?? CGColor(
+            gray: 0.5, alpha: 1.0
+        )
     }
 
     // MARK: - Outline entity

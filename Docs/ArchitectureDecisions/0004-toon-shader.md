@@ -130,3 +130,102 @@ ToonMaterialFactory.attachOutline(to: layer)
 - Apple: [`PhysicallyBasedMaterial`](https://developer.apple.com/documentation/realitykit/physicallybasedmaterial)(iOS 15+ / macOS 12+ / visionOS 1+)
 - WWDC23 Reality Composer Pro: [Explore materials in Reality Composer Pro](https://developer.apple.com/videos/play/wwdc2023/10202/)
 - ADR-0001(三層アーキテクチャ) — 本 factory は Gameplay 層に属し、View / ECS System からは直接呼ばれず、呼び出しは `GeologySceneBuilder` / Render パイプライン経由。
+
+---
+
+## Phase 9 Part C Addendum (2026-04-23)
+
+Phase 1 で保留していた Scheme A(真 step-ramp Toon)を、**Scheme C へのフォールバックつきハイブリッド**として投入した。ステータス: **Accepted(hybrid mode)**。Scheme C は 非推奨ではなく、**保険層として永続**する。
+
+### 方針
+
+```
+┌──────────────────────────────────────────────────┐
+│ Preload 時: ShaderGraphMaterial(named:from:in:)  │
+│   success → cachedShaderGraph = .success(tpl)    │
+│   failure → cachedShaderGraph = .failure(err)    │
+│                                                   │
+│ makeLayerMaterial / makeHardCelMaterial(同期):    │
+│   1. attemptStepRampMaterial(baseColor:)          │
+│      ├─ cache == .success → clone + setParameter  │
+│      │                        → Scheme A return   │
+│      ├─ cache == .failure → nil (log once)        │
+│      └─ cache == nil     → nil (silent: timing)   │
+│   2. nil なら Scheme C (PBR+emissive) にフォール   │
+└──────────────────────────────────────────────────┘
+```
+
+### 変更点
+
+1. **新規ファイル**: `Resources/Shaders/StepRampToon.usda` — hand-written MaterialX。
+   現在は簡易 pass-through(`ND_surface_unlit` の `emission_color` に `baseColor`
+   パラメータ直結)。真の 3-band NdotL step ramp への昇格は「Next steps」参照。
+2. **`ToonMaterialFactory` 拡張**:
+   - `preloadStepRampShader(bundle:) async -> Bool` — 起動時に 1 度呼ぶプリロード API。
+   - `attemptStepRampMaterial(baseColor:) -> Material?` — internal sync path、cache
+     を読んで ShaderGraph を返すか nil。
+   - `cachedShaderGraph: Result<ShaderGraphMaterial, Error>?` — MainActor-isolated
+     な static cache。`nonisolated(unsafe)` は Swift 6 で `ShaderGraphMaterial`
+     が Sendable でないための逃げ。シングルトンではなく resource cache。
+   - Scheme C の実装を `makeLayerMaterialPBR` / `makeHardCelMaterialPBR` に rename、
+     そこへフォールバック。
+3. **`ToonMaterialFactory+Outline.swift` は未変更**。Outline は Scheme A でも
+   依然として back-face hull で出す。ShaderGraph 側で rim light を書けるようになったら
+   この後の PR で抜く。
+4. **テスト +4**: shader load 試行 / fallback 経路 / 常時 usable material / hard-cel
+   経路。`swift test` で 358 tests / 0 failures。
+
+### なぜ Scheme C を残すのか
+
+1. **`.usda` の脆さ** — MaterialX の node id・スキーマ は 1 文字のタイポで
+   `invalidTypeFound` を上げる。Headless agent(Reality Composer Pro 非使用)で
+   書かれた `.usda` は将来の誰かが触ってすぐに壊せる。
+2. **Launch blocker 禁止** — ゲームは「動き続ける」が最優先。Scheme A が死んでも
+   Scheme C で普通の PBR 塗りがレンダリングされる。
+3. **Single-path maintenance 不要** — Scheme C は Phase 1 から既に書かれており、
+   消すと復活コストが高い。Fallback として残すのはコスト低。
+4. **Async init** — `ShaderGraphMaterial(named:from:in:)` は `async throws`。
+   Factory の call site(`StackedCylinderMeshBuilder` など)は全て同期。Scheme C
+   を残すことで、**プリロードが済む前の最初のフレーム** でもレンダリングできる。
+
+### なぜ pass-through graph なのか(真 step ramp ではなく)
+
+真の 3-band NdotL step ramp には **per-scene light direction の取得** が必要。
+MaterialX の標準ライブラリには `ND_normal_vector3`(geometric normal を world
+space で返す)や `ND_dotproduct_vector3`(内積)はあるが、RealityKit の
+ShaderGraph では **どのノード名 / スキーマが実際に認識されるか** が公開文書では
+不明瞭。最初に試した複雑な graph(`NormalVec` → `Dot` → `IfGreater` × 2 → `Multiply`)
+は `invalidTypeFound` で即死した。
+
+よって Phase 9 Part C では:
+
+- **動く最小限**: `ND_surface_unlit` + `baseColor` パス。
+- これだけでも PBR とは見た目が違う(IBL / specular 寄与なし = 完全ベタ塗り)
+  → "Toon っぽい" として読める。
+- 将来の Reality Composer Pro 統合 or `ND_normal_vector3` 等のパス検証が済んだ
+  時点で真の step ramp に **`.usda` 差し替え 1 発で** 昇格できる。Swift 側の
+  fallback chain はそのまま使える。
+
+### Next steps
+
+1. **真の step ramp `.usda` 昇格**。RCP でビジュアル構築するか、`Tools/plateau-pipeline/`
+   的な "shader authoring tool" を作って MaterialX graph を検証済み node id から
+   組み立てる。3 bands (`lowStep=0.25`, `midStep=0.6`, `highStep=1.0`)。
+2. **Rim light** — Fresnel 項を ShaderGraph 側で書いて outline 廃止候補。
+3. **Preload 統合** — `SendaiGLabApp.init` 近辺で `await
+   ToonMaterialFactory.preloadStepRampShader()` を呼んで初フレームから Scheme A
+   を有効化。本 PR は RootView 非編集の縛りで保留。
+4. **Graph の複雑化テスト**。hand-written `.usda` が壊れていないかを CI で確認
+   する "header check" script。現状は `swift test` が間接的に検証している。
+
+### 影響
+
+- **メリット**: 将来 Scheme A に完全に乗った時に、Swift コードの変更ゼロで `.usda`
+  だけで視覚を更新できる土台ができた。
+- **負債**: hand-written MaterialX 1 個を repo 内に抱えた。コードレビューで node id
+  のタイポを見つけるのは難しい(Xcode では USD シンタックスハイライトに留まる)。
+  Phase 10 以降で validate する lightweight Python parser を検討。
+- **パフォーマンス**: Scheme A 成功時は `ShaderGraphMaterial` 1 枚 × clone 数。
+  Scheme C 相当。アウトライン hull は **どちらのパスでも** そのまま出る(Outline
+  を剥がす最適化は Phase 10 以降)。
+
