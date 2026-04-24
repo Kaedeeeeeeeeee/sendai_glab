@@ -1271,6 +1271,14 @@ public struct RootView: View {
         // RootView or separate binding slot is needed. Registered
         // after DisasterSystem so the System update order is stable.
         DisasterCameraShakeSystem.registerSystem()
+        // Phase 2 Beta vehicle ECS. MUST be registered so the
+        // per-frame `update(context:)` runs — without it, `.pilot`
+        // intents write to `VehicleComponent` but nothing applies
+        // the axis / vertical to the entity transform. The drone
+        // appeared to "not fly" for the entire session because only
+        // the tests ever called these two `registerSystem()` lines.
+        VehicleComponent.registerComponent()
+        VehicleControlSystem.registerSystem()
         // Phase 7.1: drone follow-cam ease. Component marks the
         // occupied vehicle's entity; the System eases the child
         // camera's local translation toward the component's target.
