@@ -24,11 +24,24 @@ final class DisasterAudioBridgeTests: XCTestCase {
     /// test module and the surface is small.
     final class RecordingAudioService: AudioService {
         var playedEffects: [AudioEffect] = []
+        /// Records every cue passed to `stop(_:)` so the Ended-event
+        /// plumbing can be asserted. Added in Phase 8.1 alongside
+        /// the real `AudioService.stop(_:)` API.
+        var stoppedEffects: [AudioEffect] = []
 
         @discardableResult
-        override func play(_ effect: AudioEffect, volume: Float = 1.0) -> UUID? {
+        override func play(
+            _ effect: AudioEffect,
+            volume: Float = 1.0,
+            loops: Int = 0
+        ) -> UUID? {
             playedEffects.append(effect)
-            return super.play(effect, volume: volume)
+            return super.play(effect, volume: volume, loops: loops)
+        }
+
+        override func stop(_ effect: AudioEffect) {
+            stoppedEffects.append(effect)
+            super.stop(effect)
         }
     }
 
@@ -101,5 +114,35 @@ final class DisasterAudioBridgeTests: XCTestCase {
         await bus.publish(EarthquakeEnded(questId: nil))
         await drainBus()
         // No assertion — just ensure no crash, no extra cue.
+    }
+
+    // MARK: - Stop routing (Phase 8.1)
+
+    /// `EarthquakeEnded` must call `audioService.stop(.earthquakeRumble)`
+    /// so the (now-looping) rumble is silenced at the end of the
+    /// shake. This is the "long rumble didn't outlive the quake"
+    /// guard for the new `loops: -1` play.
+    func testEarthquakeEndedStopsRumble() async {
+        let (bus, audio, bridge) = makeBridge()
+        await bridge.start()
+
+        await bus.publish(EarthquakeEnded(questId: nil))
+        await drainBus()
+
+        XCTAssertEqual(audio.stoppedEffects, [.earthquakeRumble])
+    }
+
+    /// `FloodEnded` must call `audioService.stop(.floodWater)` — a
+    /// symmetry guard. Placeholder flood SFX is one-shot today, but
+    /// a longer asset in future Phase 9 would otherwise outlast the
+    /// visible flood.
+    func testFloodEndedStopsFloodCue() async {
+        let (bus, audio, bridge) = makeBridge()
+        await bridge.start()
+
+        await bus.publish(FloodEnded(questId: nil))
+        await drainBus()
+
+        XCTAssertEqual(audio.stoppedEffects, [.floodWater])
     }
 }

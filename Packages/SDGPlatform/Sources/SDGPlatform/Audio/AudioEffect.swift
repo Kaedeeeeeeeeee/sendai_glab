@@ -101,18 +101,31 @@ public enum AudioEffect: String, CaseIterable, Sendable {
     /// lookup key. Kept as a plain `String` (not an enum) because the
     /// on-disk directory name is the source of truth — the README
     /// contract — not a Swift construct.
-    public var category: String {
+    ///
+    /// Delegates to the typed `categoryKind` so the mapping only lives
+    /// in one place. Callers that need to discriminate without matching
+    /// magic strings (e.g. `AudioService.stop(category:)`) should use
+    /// `categoryKind` instead.
+    public var category: String { categoryKind.rawValue }
+
+    /// Typed sibling of `category`. Phase 8.1 added
+    /// `AudioService.stop(category:)` which needs a safe, exhaustive way
+    /// to bucket every cue — a plain `String` parameter risks typos
+    /// silently stopping nothing. New callers should prefer this; the
+    /// raw-string `category` is retained because the on-disk directory
+    /// names are the README contract.
+    public var categoryKind: AudioCategory {
         switch self {
         case .uiTap, .uiTabSelect, .uiOpen, .uiClose:
-            return "ui"
+            return .ui
         case .drillStart, .drillImpactRandom:
-            return "drill"
+            return .drill
         case .footstepGrass, .footstepConcrete:
-            return "footstep"
+            return .footstep
         case .feedbackSuccess, .feedbackFailure, .feedbackNotify:
-            return "feedback"
+            return .feedback
         case .earthquakeRumble, .floodWater:
-            return "disaster"
+            return .disaster
         }
     }
 
@@ -148,4 +161,22 @@ public enum AudioEffect: String, CaseIterable, Sendable {
             return [prefix]
         }
     }
+}
+
+// MARK: - AudioCategory
+
+/// Typed bucket for `AudioEffect`. Added in Phase 8.1 so
+/// `AudioService.stop(category:)` can target all cues in a bucket
+/// without taking a raw `String`. The `rawValue`s match the on-disk
+/// directory names (`Resources/Audio/SFX/<rawValue>/…`) so the old
+/// `category: String` API keeps working unchanged.
+///
+/// Keeping the enum in the same file as `AudioEffect` because every
+/// case line-up needs to be edited together.
+public enum AudioCategory: String, CaseIterable, Sendable {
+    case ui
+    case drill
+    case footstep
+    case feedback
+    case disaster
 }

@@ -205,4 +205,30 @@ final class PlayerControlSystemTests: XCTestCase {
         system.applyInput(to: entity, deltaTime: 1.0)
         XCTAssertEqual(entity.position, .zero)
     }
+
+    // MARK: - Stagger input scaling (Phase 8.1)
+
+    /// When `PlayerComponent.isStaggered` is true (earthquake active),
+    /// the System must scale `moveAxis` by `staggeredMoveScale` so
+    /// the player feels sluggish but can still move. This is the
+    /// whole contract of `isStaggered` — no other effect.
+    func testStaggeredPlayerMovesAtReducedSpeed() {
+        let system = makeSystem()
+        let player = makePlayer(moveAxis: SIMD2(0, 1))
+        // Flip the identity tag's stagger flag. The input component
+        // is left untouched — stagger lives on the identity, per
+        // PlayerComponent's doc comment.
+        player.components.set(PlayerComponent(isStaggered: true))
+
+        system.applyInput(to: player, deltaTime: 1.0)
+
+        let expected = -PlayerControlSystem.moveSpeed
+            * PlayerControlSystem.staggeredMoveScale
+        XCTAssertEqual(
+            player.position.z,
+            expected,
+            accuracy: 1e-4,
+            "staggered forward motion should be scaled by \(PlayerControlSystem.staggeredMoveScale)"
+        )
+    }
 }

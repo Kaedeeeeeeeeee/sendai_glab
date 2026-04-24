@@ -64,6 +64,13 @@ public final class PlayerControlSystem: System {
     /// camera from flipping past vertical.
     public static let pitchLimit: Float = .pi / 180 * 80
 
+    /// Multiplier applied to `moveAxis` while `PlayerComponent.isStaggered`
+    /// is true. 0.3 = 70 % of forward momentum shed — the ground
+    /// stealing their balance reads as a stagger, but the player can
+    /// still shuffle around so they never feel soft-locked during a
+    /// quake. Tuned by playtest; see ADR-0010 Phase 8.1 addendum.
+    public static let staggeredMoveScale: Float = 0.3
+
     /// The query we run each frame. Built once at init time because
     /// the predicate never changes and the query value is cheap to
     /// reuse.
@@ -229,7 +236,18 @@ public final class PlayerControlSystem: System {
         // `axis.x` strafe = entity's local `+X`. Convert to world by
         // transforming the direction through the entity's current
         // orientation.
-        let axis = input.moveAxis
+        //
+        // Phase 8.1: when the player's identity tag is flagged
+        // `isStaggered` (the earthquake is shaking), scale the axis
+        // by `staggeredMoveScale` so input feels sluggish. We read
+        // the flag *here* rather than gating on `input.moveAxis`
+        // earlier so the stagger only affects translation — yaw /
+        // pitch still respond normally, which preserves look control
+        // while balance is off.
+        let isStaggered = entity.components[PlayerComponent.self]?
+            .isStaggered ?? false
+        let scale: Float = isStaggered ? Self.staggeredMoveScale : 1
+        let axis = input.moveAxis * scale
         if axis != .zero {
             let localDir = SIMD3<Float>(axis.x, 0, -axis.y)
             let worldDir = entity.orientation.act(localDir)
