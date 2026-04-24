@@ -210,6 +210,13 @@ public enum InteriorSceneBuilder {
     // MARK: - Helpers
 
     /// Build and parent one slab (floor / wall / ceiling piece).
+    ///
+    /// Phase 9 Part G: each slab gets a matching box collision shape
+    /// so `PlayerControlSystem`'s wall-raycast can block the player
+    /// from walking through lab walls. The floor keeps a collision
+    /// shape too even though we use a fixed-Y short-circuit indoors
+    /// — the shape does no harm and lets future systems (e.g. a
+    /// dropped-sample physics bounce) reuse it.
     @MainActor
     private static func addShellSlab(
         to parent: Entity,
@@ -226,6 +233,12 @@ public enum InteriorSceneBuilder {
         )
         entity.name = name
         entity.position = position
+        // Box-shape collision matching the slab volume. Cheaper than
+        // `generateCollisionShapes(recursive:)` because we already know
+        // the exact dimensions; no mesh walk needed.
+        entity.components.set(CollisionComponent(
+            shapes: [.generateBox(size: size)]
+        ))
         parent.addChild(entity)
     }
 
