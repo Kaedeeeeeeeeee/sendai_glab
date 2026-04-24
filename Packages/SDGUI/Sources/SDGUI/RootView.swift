@@ -195,6 +195,19 @@ public struct RootView: View {
     /// Replaces the Phase 3 ad-hoc dialogue→quest subscription.
     @State private var storyProgressionBridge: StoryProgressionBridge?
 
+    /// Phase 9 Part F: scene transition state machine (outdoor ↔ indoor).
+    @State private var sceneTransitionStore: SceneTransitionStore
+
+    /// Phase 9 Part F: retained portal entities for the per-tick proximity snapshot.
+    @State private var outdoorPortalEntity: Entity?
+    @State private var indoorPortalEntity: Entity?
+
+    /// Phase 9 Part F: the lab interior — lives in the scene graph always; isEnabled flips.
+    @State private var labInteriorEntity: Entity?
+
+    /// Phase 9 Part F: subscription token for SceneTransitionStarted.
+    @State private var sceneTransitionStartedToken: SubscriptionToken?
+
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
 
@@ -242,6 +255,7 @@ public struct RootView: View {
         _workbenchStore = State(initialValue: WorkbenchStore(eventBus: placeholder))
         _vehicleStore = State(initialValue: VehicleStore(eventBus: placeholder))
         _disasterStore = State(initialValue: DisasterStore(eventBus: placeholder))
+        _sceneTransitionStore = State(initialValue: SceneTransitionStore(eventBus: placeholder))
     }
 
     public var body: some View {
@@ -324,14 +338,32 @@ public struct RootView: View {
         .task { await bootstrap() }
         .onDisappear { teardown() }
         .onReceive(playerPositionPoll) { _ in
-            // Pull the current player body position into SwiftUI land
-            // so the HUD's Board-button proximity check can redraw.
-            // Reads ignore the character Y (we only care about XZ for
-            // "did the player walk up to the vehicle") but snapshotting
-            // all 3 is cheap. Writes only fire the HUD redraw when the
-            // @State value actually changes (SIMD3 is Equatable).
             if let body = sceneRefs.playerEntity {
                 polledPlayerPosition = body.position(relativeTo: nil)
+            }
+            // Phase 9 Part F: portal proximity tick.
+            var snapshots: [PortalProximitySnapshot] = []
+            if let outdoor = outdoorPortalEntity,
+               let comp = outdoor.components[LocationTransitionComponent.self] {
+                snapshots.append(PortalProximitySnapshot(
+                    position: outdoor.position(relativeTo: nil),
+                    transition: comp
+                ))
+            }
+            if let indoor = indoorPortalEntity,
+               let comp = indoor.components[LocationTransitionComponent.self] {
+                snapshots.append(PortalProximitySnapshot(
+                    position: indoor.position(relativeTo: nil),
+                    transition: comp
+                ))
+            }
+            let store = sceneTransitionStore
+            let player = polledPlayerPosition
+            Task { @MainActor in
+                await store.intent(.tickProximity(
+                    playerPosition: player,
+                    portals: snapshots
+                ))
             }
         }
         .onChange(of: joystickAxis) { _, new in
@@ -557,6 +589,39 @@ public struct RootView: View {
             samples.name = "SampleContainer"
             content.add(samples)
             sceneRefs.sampleContainer = samples
+
+            // 6. Phase 9 Part F — interior lab + outdoor portal pair.
+            let lab = InteriorSceneBuilder.build(
+                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 1.5)
+            )
+            lab.position = SIMD3<Float>(0, 0, 0)
+            lab.isEnabled = false
+            content.add(lab)
+            labInteriorEntity = lab
+
+            let outdoorPortalXZ = SIMD2<Float>(0, -5)
+            let outdoorPortalY: Float = {
+                if let terrain = loadedTerrain,
+                   let y = TerrainLoader.sampleTerrainY(
+                       in: terrain, atWorldXZ: outdoorPortalXZ
+                   ) {
+                    return y
+                }
+                return 0
+            }()
+            let outdoorPortal = PortalEntity.makeOutdoorPortal(
+                at: SIMD3<Float>(outdoorPortalXZ.x, outdoorPortalY, outdoorPortalXZ.y),
+                targetScene: .indoor(sceneId: InteriorSceneBuilder.defaultSceneId),
+                spawnPointInTarget: InteriorSceneBuilder.defaultIndoorSpawnPoint
+            )
+            content.add(outdoorPortal)
+            outdoorPortalEntity = outdoorPortal
+
+            indoorPortalEntity = lab.children.first {
+                $0.name == "LabInterior.indoorPortalMarker"
+            }
+
+            body.components.set(LocationComponent(.outdoor))
         }
         .gesture(lookGesture)
     }
@@ -637,6 +702,23 @@ public struct RootView: View {
         Task { @MainActor in
             await store.intent(.exit)
         }
+    }
+
+    /// Phase 9 Part F — subscriber to SceneTransitionStarted.
+    @MainActor
+    private func handleSceneTransition(_ event: SceneTransitionStarted) async {
+        guard
+            let player = sceneRefs.playerEntity,
+            let lab = labInteriorEntity
+        else { return }
+        switch event.to {
+        case .outdoor:
+            lab.isEnabled = false
+        case .indoor:
+            lab.isEnabled = true
+        }
+        player.position = event.spawnPoint
+        player.components.set(LocationComponent(event.to))
     }
 
     /// 🌋 Phase 8 earthquake debug button. Fires a 2-second shake
@@ -897,6 +979,14 @@ public struct RootView: View {
         // quest-driven disaster doesn't re-fire on cold boot.
         await disasterStore.start()
         DisasterSystem.boundStore = disasterStore
+
+        // Phase 9 Part F: rebind scene transition store + subscriber.
+        sceneTransitionStore = SceneTransitionStore(eventBus: bus)
+        sceneTransitionStartedToken = await bus.subscribe(
+            SceneTransitionStarted.self
+        ) { event in
+            await handleSceneTransition(event)
+        }
         let dBridge = DisasterAudioBridge(
             eventBus: bus,
             audioService: audioService
@@ -1050,6 +1140,10 @@ public struct RootView: View {
             Task { await bus.cancel(token) }
             dialogueFinishedToken = nil
         }
+        if let token = sceneTransitionStartedToken {
+            Task { await bus.cancel(token) }
+            sceneTransitionStartedToken = nil
+        }
         let ds = drillingStore
         let inv = inventoryStore
         let orch = orchestrator
@@ -1132,6 +1226,9 @@ public struct RootView: View {
         // camera's local translation toward the component's target.
         VehicleFollowCamComponent.registerComponent()
         VehicleFollowCamSystem.registerSystem()
+        // Phase 9 Part F: scene transition markers.
+        LocationComponent.registerComponent()
+        LocationTransitionComponent.registerComponent()
         systemsRegistered = true
     }
 
