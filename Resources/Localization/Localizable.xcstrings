@@ -3842,6 +3842,116 @@
         }
       }
     },
+    "geology.layer.alluvium.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "沖積層" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Alluvium" }
+        }
+      }
+    },
+    "geology.layer.basement.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "基盤" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Basement" }
+        }
+      }
+    },
+    "geology.layer.dainenji.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "大年寺層" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Dainenji Formation" }
+        }
+      }
+    },
+    "geology.layer.dainohara-terrace.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "台ノ原段丘堆積物" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Dainohara Terrace Deposits" }
+        }
+      }
+    },
+    "geology.layer.diluvial-gravel.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "洪積礫層" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Diluvial Gravel" }
+        }
+      }
+    },
+    "geology.layer.fill.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "盛土・表土" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Fill and Topsoil" }
+        }
+      }
+    },
+    "geology.layer.hirose-lower-terrace.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "広瀬川下位段丘礫" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Hirose Lower Terrace Gravel" }
+        }
+      }
+    },
+    "geology.layer.hirosegawa-tuff.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "広瀬川凝灰岩" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Hirosegawa Tuff" }
+        }
+      }
+    },
+    "geology.layer.kameoka.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "亀岡層" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Kameoka Formation" }
+        }
+      }
+    },
+    "geology.layer.mukaiyama.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "向山層" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Mukaiyama Formation" }
+        }
+      }
+    },
     "geology.layer.name_format": {
       "extractionState": "manual",
       "localizations": {
@@ -3862,6 +3972,116 @@
             "state": "translated",
             "value": "Layer_%1$@"
           }
+        }
+      }
+    },
+    "geology.layer.tatsunokuchi.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "竜の口層" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Tatsunokuchi Formation" }
+        }
+      }
+    },
+    "geology.layer.terrace-gravel.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "段丘礫" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Terrace Gravel" }
+        }
+      }
+    },
+    "geology.layer.terrace.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "段丘堆積物" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Terrace Deposits" }
+        }
+      }
+    },
+    "geology.layer.topsoil.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "表土" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Topsoil" }
+        }
+      }
+    },
+    "geology.region.aobayama-campus.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "青葉山キャンパス" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Aobayama Campus" }
+        }
+      }
+    },
+    "geology.region.aobayama-castle.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "青葉城跡方面" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Aobayama Castle Area" }
+        }
+      }
+    },
+    "geology.region.aobayama-north.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "青葉山北側" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Aobayama North" }
+        }
+      }
+    },
+    "geology.region.kawauchi.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "川内" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Kawauchi" }
+        }
+      }
+    },
+    "geology.region.tohoku-gakuin.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "片平・東北学院大学周辺" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Katahira / Tohoku Gakuin Vicinity" }
+        }
+      }
+    },
+    "drill.error.outOfSurveyArea": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "調査エリア外のため掘削できません" }
+        },
+        "en": {
+          "stringUnit": { "state": "translated", "value": "Outside survey area — cannot drill here" }
         }
       }
     },

@@ -84,7 +84,14 @@ public enum StoryLoader {
     /// Order matches narrative progression, mirroring the JSON file
     /// naming scheme `questCHAPTER.PART.json`.
     public static let shippedBasenames: [String] = [
-        "quest1.1", "quest1.2",
+        // Phase 9 Part B: quest1.3 (青葉山採集) + quest1.4 (川内採集)
+        // added alongside the existing chapter-1 laboratory intros.
+        // The task spec originally wanted these under the names
+        // `quest1.2` / `quest1.3` but `quest1.2.json` was already
+        // shipped in Phase 2 Beta with different content; the new
+        // sampling scenes take 1.3 / 1.4 to preserve backwards
+        // compatibility. See Docs/Phase9Integration/B.md.
+        "quest1.1", "quest1.2", "quest1.3", "quest1.4",
         "quest2.1",
         "quest3.1", "quest3.2", "quest3.3", "quest3.4",
         "quest4.1", "quest4.2", "quest4.3", "quest4.4",

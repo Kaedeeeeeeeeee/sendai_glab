@@ -1,0 +1,57 @@
+{
+  "regionId": "aobayama-campus",
+  "nameKey": "geology.region.aobayama-campus.name",
+  "source": "Wikipedia 仙台層群 + 東北大学理学部 地質巡検資料 + 日本地質学会",
+  "confidence": "needs_geologist_review",
+  "layers": [
+    {
+      "id": "aobayama-campus.topsoil",
+      "nameKey": "geology.layer.topsoil.name",
+      "thickness": 1.0,
+      "colorHex": "#6B4C2F",
+      "lithology": "topsoil and fill"
+    },
+    {
+      "id": "aobayama-campus.terrace-gravel",
+      "nameKey": "geology.layer.terrace-gravel.name",
+      "thickness": 4.0,
+      "colorHex": "#C2A878",
+      "lithology": "terrace gravel"
+    },
+    {
+      "id": "aobayama-campus.dainenji",
+      "nameKey": "geology.layer.dainenji.name",
+      "thickness": 8.0,
+      "colorHex": "#D4B366",
+      "lithology": "sandstone with tuff"
+    },
+    {
+      "id": "aobayama-campus.mukaiyama",
+      "nameKey": "geology.layer.mukaiyama.name",
+      "thickness": 25.0,
+      "colorHex": "#4A4A52",
+      "lithology": "mudstone with lignite and tuff"
+    },
+    {
+      "id": "aobayama-campus.hirosegawa-tuff",
+      "nameKey": "geology.layer.hirosegawa-tuff.name",
+      "thickness": 3.0,
+      "colorHex": "#D8C8BE",
+      "lithology": "tuff (Hirosegawa intercalation)"
+    },
+    {
+      "id": "aobayama-campus.tatsunokuchi",
+      "nameKey": "geology.layer.tatsunokuchi.name",
+      "thickness": 20.0,
+      "colorHex": "#3C4A55",
+      "lithology": "marine mudstone and sandstone"
+    },
+    {
+      "id": "aobayama-campus.basement",
+      "nameKey": "geology.layer.basement.name",
+      "thickness": 0.0,
+      "colorHex": "#2F2F35",
+      "lithology": "basement"
+    }
+  ]
+}

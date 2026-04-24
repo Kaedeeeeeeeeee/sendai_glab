@@ -1,0 +1,61 @@
+{
+    "scene": "第一幕 1.4 章：川内で採集する",
+    "background": "kawauchi_outdoor",
+    "bgm": "field_day",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "川内キャンパス、広瀬川の河岸段丘。水の音が響き、低地に川の流れが見える。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_4.line01"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ここは青葉山とまったく違う地層よ。川が作った段丘堆積物、その下に洪積礫、そして竜の口層。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_4.line02"
+        },
+        {
+            "speaker": "主人公",
+            "text": "青葉山のあの色と全然違う……！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_4.line03"
+        },
+        {
+            "speaker": "みなと",
+            "text": "やっぱり、川が地層を作ったってこと？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_4.line04"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "そう、広瀬川が数万年かけて運んできた礫が積もっている。洪水が何度も土砂を押し寄せて、その度に新しい層が加わった。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_4.line05"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ここでサンプルを採ると、青葉山との違いがはっきりわかるわ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_4.line06"
+        },
+        {
+            "speaker": "主人公",
+            "text": "はい、採ってきます！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_4.line07"
+        },
+        {
+            "speaker": "みなと",
+            "text": "……この川、また氾濫することってある？",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_4.line08"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "……あるわ。地層はその歴史を記録してる。だからこそ、今私たちが調査する意味がある。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_4.line09"
+        }
+    ]
+}
