@@ -191,6 +191,17 @@ public struct RootView: View {
     /// the platform `AudioService`. Started in `bootstrap()`.
     @State private var disasterAudioBridge: DisasterAudioBridge?
 
+    /// Phase 10: bridges `AppSessionStarted` / `UserSignedIn` to
+    /// `TelemetryWriting.logSession`. Started in `bootstrap()` iff
+    /// an `AuthStore` is injected via `\.authStore` (production path;
+    /// previews render without it). See ADR-0011.
+    @State private var sessionLogBridge: SessionLogBridge?
+
+    /// Phase 10: the AuthStore handed in by `ContentView`. Read via
+    /// `@Environment` so `RootView` has no init-surface change. `nil`
+    /// in previews / unit tests — the bridge skips start in that case.
+    @Environment(\.authStore) private var injectedAuthStore: AuthStore?
+
     /// Phase 9 Part B: story-driven quest + disaster routing.
     /// Replaces the Phase 3 ad-hoc dialogue→quest subscription.
     @State private var storyProgressionBridge: StoryProgressionBridge?
@@ -904,6 +915,18 @@ public struct RootView: View {
         await dBridge.start()
         disasterAudioBridge = dBridge
 
+        // Phase 10 Supabase POC: session telemetry. Skipped when
+        // `authStore` isn't injected (previews / unit-test host).
+        if let authStore = injectedAuthStore {
+            let sBridge = SessionLogBridge(
+                eventBus: bus,
+                authStore: authStore,
+                telemetry: env.telemetry
+            )
+            await sBridge.start()
+            sessionLogBridge = sBridge
+        }
+
         // Safety net: also tag tiles here in case bootstrap finished
         // before the RealityView's async corridor load. The primary
         // tagging site is inside the RealityView make closure right
@@ -1056,6 +1079,7 @@ public struct RootView: View {
         let bridge = audioBridge
         let dBridge = disasterAudioBridge
         let pBridge = storyProgressionBridge
+        let sBridge = sessionLogBridge
         let qs = questStore
         Task {
             await ds.stop()
@@ -1065,10 +1089,12 @@ public struct RootView: View {
             if let bridge { await bridge.stop() }
             if let dBridge { await dBridge.stop() }
             if let pBridge { await pBridge.stop() }
+            if let sBridge { await sBridge.stop() }
         }
         audioBridge = nil
         disasterAudioBridge = nil
         storyProgressionBridge = nil
+        sessionLogBridge = nil
         // Clear the Phase 8 System binding so a subsequent view
         // creation re-binds to the fresh store rather than the
         // stale one from the previous scene.
