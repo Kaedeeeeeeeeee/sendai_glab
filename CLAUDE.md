@@ -368,6 +368,66 @@ earthquake + flood の両方、debug button で手動トリガー。quest 駆動
 - 本物の earthquake/flood SFX
 - 洪水 ripple shader(Reality Composer Pro)
 
+### Phase 11 PLATEAU 建物纹理 + GSI orthophoto — 完了(2026-04-24、branch `feat/phase-11-textures`)
+
+Phase 10 まで、街並は「暖色一色の Toon 建物 + 均一オリーブ緑の地面」だった。
+PLATEAU の LOD2 は実写 facade JPG(1065 枚/65 MB)を持っているが、パイプラインの
+**5 層**で全部落とされていた:
+
+1. `extract_bldg_gmls.sh` は `.gml` だけ展開、`_appearance/` フォルダ捨てる
+2. `convert.sh` → nusamai に texture flag 無し(実は flag そのものが存在しない、layout 駆動)
+3. `split_bldg_by_connectivity.py` が `strip_all_materials()` 呼んで `export_materials: False`
+4. `dem_to_terrain_usdz.py` が `export_uvmaps: False` + strip_materials()(DEM に UV 無し)
+5. 実行時 `applyToonMaterial` が全 ModelComponent を flat cel で上書き
+
+全部直した。視覚スタイル: **painted-realistic**(テクスチャ保持 + emissive +0.25 + ink outline)。
+
+- [x] **Part A** `extract_bldg_gmls.sh`: `_appearance/` も展開(~1065 JPG ≈ 65 MB)
+- [x] **Part B** `convert.sh`: nusamai は layout 駆動(flag 不要)と判明。loud warn 追加
+- [x] **Part C** `split_bldg_by_connectivity.py`: strip_all_materials 削除、
+      export_materials/textures/uvmaps 全部 True、`downscale_textures_inline.py`(新規)
+      で全 JPG を 512×512 q=80 に縮小、`split_all_bldgs.sh` に `PIPELINE_VERSION=p11-textures`
+      sidecar stamp 追加(Phase 6.1 USDZ が次回 run で regenerate される)
+- [x] **Part D** `ToonMaterialFactory.mutateIntoTexturedCel`(新メソッド)+
+      `PlateauEnvironmentLoader.applyHybridToonTint`(rename + 新動作)
+      PBR w/ texture → 保持 + emissive boost;それ以外 → flat cel fallback
+- [x] **Part E** `download_gsi_ortho.sh` + `gsi_tile_math.py`(GSI WMTS zoom 17 で
+      ~81 tile 取得、PIL stitch、EPSG:6677 bbox にトリム、1024² へ downscale)+
+      `dem_to_terrain_usdz.py` に `generate_planar_uvs` + `attach_ortho_material` +
+      `TerrainLoader.applyHybridTerrainTint`(同じ hybrid pattern)
+- [x] **Part F** ADR-0012、`Resources/Credits.md`(CC BY 4.0 要件)、本ファイル
+
+**iOS 26.4 API 発見**(β sub-agent):`PhysicallyBasedMaterial.baseColor.texture` は
+public read/write。`TextureResource` は Equatable だが `===` identity は通らない
+(内部 wrapper の fresh handle)。value-copy 経由で round-trip 成立。Risk R1 回避。
+
+**合計 480 tests / 0 failures**(SDGCore 22 + SDGGameplay 409 + SDGPlatform 20 + SDGUI 49)
+
+**ユーザ作業(Blender 必要、sub-agent には不可能)**:
+
+```bash
+# 1. 建物 pipeline 再生成(~30 分/tile × 5)
+rm -rf Tools/plateau-pipeline/input/extracted
+bash Tools/plateau-pipeline/extract_bldg_gmls.sh
+bash Tools/plateau-pipeline/convert.sh
+bash Tools/plateau-pipeline/split_all_bldgs.sh
+
+# 2. DEM pipeline(初回は GSI tile 取得で ~10 秒)
+bash Tools/plateau-pipeline/download_gsi_ortho.sh
+bash Tools/plateau-pipeline/convert_terrain_dem.sh
+
+# 3. ビルド + 真機確認
+xcodebuild -scheme SendaiGLab -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' build
+```
+
+**予算**:Environment USDZ 合計 6 MB → ~21.5 MB(+15.5 MB 内、Git LFS 自動追跡)。
+
+**未検証(次 playtest)**:
+- 5 tile 全部真機で facade 実写表示
+- DEM 地面が仙台衛星写真
+- 走廊 FPS(現状 60 fps、テクスチャで 50+ fps 維持想定)
+- outline 濃度 + emissive で "painted-realistic" 感
+
 ### Phase 3 残り候補(次回以降)
 
 1. 真 step-ramp Toon Shader(ADR-0004 方案 A、Reality Composer Pro)
@@ -377,6 +437,7 @@ earthquake + flood の両方、debug button で手動トリガー。quest 駆動
 5. 真の薄片写真(f.shera 研究室素材)
 6. ~~per-building DEM re-projection~~ — **Phase 6.1 で完了**
 7. ~~PR #12 をマージ~~ — **完了(main `48396f3`)**
+8. ~~PLATEAU 建物纹理 + DEM orthophoto~~ — **Phase 11 で完了**
 8. Phase 8.1: disaster クオリティ向上(quest 連携、本物 SFX、noise 関数)
 
 ## よく参照するパス
