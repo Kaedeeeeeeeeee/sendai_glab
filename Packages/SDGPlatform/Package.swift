@@ -19,13 +19,15 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../SDGCore")
+        .package(path: "../SDGCore"),
+        .package(url: "https://github.com/supabase/supabase-swift", from: "2.44.0")
     ],
     targets: [
         .target(
             name: "SDGPlatform",
             dependencies: [
-                .product(name: "SDGCore", package: "SDGCore")
+                .product(name: "SDGCore", package: "SDGCore"),
+                .product(name: "Supabase", package: "supabase-swift")
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")

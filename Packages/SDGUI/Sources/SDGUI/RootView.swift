@@ -195,6 +195,21 @@ public struct RootView: View {
     /// Replaces the Phase 3 ad-hoc dialogue→quest subscription.
     @State private var storyProgressionBridge: StoryProgressionBridge?
 
+    /// Phase 9 Part F: scene transition state machine (outdoor ↔ indoor).
+    @State private var sceneTransitionStore: SceneTransitionStore
+
+    /// Phase 9 Part F: retained refs to the portal entities so the
+    /// per-tick proximity snapshot does not need a fresh scene walk.
+    @State private var outdoorPortalEntity: Entity?
+    @State private var indoorPortalEntity: Entity?
+
+    /// Phase 9 Part F: the lab interior. Lives in the scene graph
+    /// the whole session; `isEnabled` flips on outdoor→indoor transition.
+    @State private var labInteriorEntity: Entity?
+
+    /// Phase 9 Part F: subscription token for SceneTransitionStarted.
+    @State private var sceneTransitionStartedToken: SubscriptionToken?
+
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
 
@@ -242,6 +257,7 @@ public struct RootView: View {
         _workbenchStore = State(initialValue: WorkbenchStore(eventBus: placeholder))
         _vehicleStore = State(initialValue: VehicleStore(eventBus: placeholder))
         _disasterStore = State(initialValue: DisasterStore(eventBus: placeholder))
+        _sceneTransitionStore = State(initialValue: SceneTransitionStore(eventBus: placeholder))
     }
 
     public var body: some View {
@@ -332,6 +348,36 @@ public struct RootView: View {
             // @State value actually changes (SIMD3 is Equatable).
             if let body = sceneRefs.playerEntity {
                 polledPlayerPosition = body.position(relativeTo: nil)
+            }
+
+            // Phase 9 Part F: portal proximity snapshot. Build a
+            // plain-data list of (position, LocationTransitionComponent)
+            // for each active portal and hand it to the Store. The
+            // Store decides whether to fire a transition; scene-graph
+            // mutation happens in the `SceneTransitionStarted`
+            // subscriber. Mirrors the DisasterStore.tick pattern.
+            var snapshots: [PortalProximitySnapshot] = []
+            if let outdoor = outdoorPortalEntity,
+               let comp = outdoor.components[LocationTransitionComponent.self] {
+                snapshots.append(PortalProximitySnapshot(
+                    position:outdoor.position(relativeTo: nil),
+                    transition: comp
+                ))
+            }
+            if let indoor = indoorPortalEntity,
+               let comp = indoor.components[LocationTransitionComponent.self] {
+                snapshots.append(PortalProximitySnapshot(
+                    position:indoor.position(relativeTo: nil),
+                    transition: comp
+                ))
+            }
+            let store = sceneTransitionStore
+            let player = polledPlayerPosition
+            Task { @MainActor in
+                await store.intent(.tickProximity(
+                    playerPosition: player,
+                    portals: snapshots
+                ))
             }
         }
         .onChange(of: joystickAxis) { _, new in
@@ -557,6 +603,51 @@ public struct RootView: View {
             samples.name = "SampleContainer"
             content.add(samples)
             sceneRefs.sampleContainer = samples
+
+            // 6. Phase 9 Part F — interior lab + outdoor portal pair.
+            //    The lab lives in the scene graph the whole session;
+            //    `isEnabled` flips on transition so we never swap entity
+            //    trees. Player gets LocationComponent(.outdoor) at spawn;
+            //    PlayerControlSystem gates DEM sampling on that.
+            let lab = InteriorSceneBuilder.build(
+                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 1.5)
+            )
+            lab.position = SIMD3<Float>(0, 0, 0)
+            lab.isEnabled = false
+            content.add(lab)
+            labInteriorEntity = lab
+
+            // Outdoor portal: 5 m south of player spawn, Y sampled
+            // from DEM so the frame sits on the hillside surface.
+            let outdoorPortalXZ = SIMD2<Float>(0, -5)
+            let outdoorPortalY: Float = {
+                if let terrain = loadedTerrain,
+                   let y = TerrainLoader.sampleTerrainY(
+                       in: terrain, atWorldXZ: outdoorPortalXZ
+                   ) {
+                    return y
+                }
+                return 0
+            }()
+            let outdoorPortalPos = SIMD3<Float>(
+                outdoorPortalXZ.x, outdoorPortalY, outdoorPortalXZ.y
+            )
+            let outdoorPortal = PortalEntity.makeOutdoorPortal(
+                at: outdoorPortalPos,
+                targetScene: .indoor(sceneId: InteriorSceneBuilder.defaultSceneId),
+                spawnPointInTarget: InteriorSceneBuilder.defaultIndoorSpawnPoint
+            )
+            content.add(outdoorPortal)
+            outdoorPortalEntity = outdoorPortal
+
+            // Indoor portal marker was created by InteriorSceneBuilder;
+            // find it by name so the proximity tick can include it.
+            indoorPortalEntity = lab.children.first {
+                $0.name == "LabInterior.indoorPortalMarker"
+            }
+
+            // Tag the player as outdoor.
+            body.components.set(LocationComponent(.outdoor))
         }
         .gesture(lookGesture)
     }
@@ -637,6 +728,30 @@ public struct RootView: View {
         Task { @MainActor in
             await store.intent(.exit)
         }
+    }
+
+    /// Phase 9 Part F — subscriber to `SceneTransitionStarted`.
+    /// Scene graph mutation lives here, not in the Store (ADR-0001:
+    /// Stores may not hold entity references). Flips the lab's
+    /// `isEnabled`, teleports the player, and updates the player's
+    /// `LocationComponent` so `PlayerControlSystem.snapToGround`
+    /// picks the right Y strategy next frame.
+    @MainActor
+    private func handleSceneTransition(_ event: SceneTransitionStarted) async {
+        guard
+            let player = sceneRefs.playerEntity,
+            let lab = labInteriorEntity
+        else { return }
+
+        switch event.to {
+        case .outdoor:
+            lab.isEnabled = false
+        case .indoor:
+            lab.isEnabled = true
+        }
+
+        player.position = event.spawnPoint
+        player.components.set(LocationComponent(event.to))
     }
 
     /// 🌋 Phase 8 earthquake debug button. Fires a 2-second shake
@@ -897,6 +1012,17 @@ public struct RootView: View {
         // quest-driven disaster doesn't re-fire on cold boot.
         await disasterStore.start()
         DisasterSystem.boundStore = disasterStore
+
+        // Phase 9 Part F: rebind the scene transition store on the
+        // real bus + subscribe to SceneTransitionStarted so the
+        // scene-graph mutation (player teleport + lab isEnabled flip)
+        // happens off-Store per ADR-0001.
+        sceneTransitionStore = SceneTransitionStore(eventBus: bus)
+        sceneTransitionStartedToken = await bus.subscribe(
+            SceneTransitionStarted.self
+        ) { event in
+            await handleSceneTransition(event)
+        }
         let dBridge = DisasterAudioBridge(
             eventBus: bus,
             audioService: audioService
@@ -1050,6 +1176,10 @@ public struct RootView: View {
             Task { await bus.cancel(token) }
             dialogueFinishedToken = nil
         }
+        if let token = sceneTransitionStartedToken {
+            Task { await bus.cancel(token) }
+            sceneTransitionStartedToken = nil
+        }
         let ds = drillingStore
         let inv = inventoryStore
         let orch = orchestrator
@@ -1132,6 +1262,10 @@ public struct RootView: View {
         // camera's local translation toward the component's target.
         VehicleFollowCamComponent.registerComponent()
         VehicleFollowCamSystem.registerSystem()
+        // Phase 9 Part F: scene transition markers for indoor/outdoor
+        // location tagging and portal trigger payloads.
+        LocationComponent.registerComponent()
+        LocationTransitionComponent.registerComponent()
         systemsRegistered = true
     }
 
