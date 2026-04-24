@@ -399,9 +399,10 @@ public final class PlateauEnvironmentLoader {
             break
         }
 
-        // 4. Toonify.
+        // 4. Toonify (Phase 11 Part D: hybrid — preserve textures when
+        //    the USDZ shipped them, flat cel for everything else).
         let palette = Self.warmToonColour(for: tile)
-        Self.applyToonMaterial(toDescendantsOf: entity, baseColor: palette)
+        Self.applyHybridToonTint(toDescendantsOf: entity, baseColor: palette)
 
         return entity
     }
@@ -500,29 +501,55 @@ public final class PlateauEnvironmentLoader {
         return warmPalette[index % warmPalette.count]
     }
 
-    /// Walk the entity tree and replace every `ModelComponent`'s
-    /// materials with a single Toon material coloured `baseColor`.
-    /// All mesh parts on the same entity share the material — the
-    /// intent is the "blocky building" look that matches the rest of
-    /// the Phase 1 / Phase 2 POC aesthetic (see ADR-0004).
+    /// Walk the entity tree and apply a **hybrid** Toon tint to every
+    /// `ModelComponent`'s material slots:
     ///
-    /// Exposed `internal` so tests can exercise it on synthetic
-    /// hierarchies without going through `loadTile(...)`.
-    internal static func applyToonMaterial(
+    /// * If a slot already holds a **textured `PhysicallyBasedMaterial`**
+    ///   (Phase 11 Part C ships PLATEAU USDZs with baked facade JPGs),
+    ///   **mutate it in place** via
+    ///   `ToonMaterialFactory.mutateIntoTexturedCel(_:)`. The facade
+    ///   texture survives into the render; emissive is boosted and
+    ///   specular is killed so the result reads as "painted realistic"
+    ///   / Borderlands-ish rather than raw PBR.
+    ///
+    /// * Otherwise (slot holds a `SimpleMaterial`, an *untextured* PBR
+    ///   material, or anything the mutator can't identify as
+    ///   texture-bearing), **replace the slot** with a fresh
+    ///   `ToonMaterialFactory.makeHardCelMaterial(baseColor:)` using
+    ///   the legacy per-tile warm palette. This keeps Phase 6.1's
+    ///   pre-textured USDZs and any stray debug meshes visually
+    ///   consistent with the rest of the cel look.
+    ///
+    /// The outline shell (see `ToonMaterialFactory.makeOutlineEntity(for:)`)
+    /// is attached by callers, not by this function. The hybrid tint
+    /// only touches the material layer.
+    ///
+    /// Exposed `internal` so tests can exercise the branch selection
+    /// on synthetic hierarchies without going through `loadTile(...)`.
+    ///
+    /// - Parameters:
+    ///   - root: Entity whose descendants will be walked.
+    ///   - baseColor: Fallback warm-palette colour used by
+    ///     `makeHardCelMaterial` for any slot that is *not* a textured
+    ///     PBR. Ignored by the mutator branch (which preserves the
+    ///     texture's colour identity).
+    internal static func applyHybridToonTint(
         toDescendantsOf root: Entity,
         baseColor: SIMD3<Float>
     ) {
-        // Phase 3 Toon upgrade: buildings now use the "harder cel"
-        // variant which pushes emissive higher and removes residual
-        // specular, so the PLATEAU facades read as flat cartoon
-        // volumes rather than realistic-lit buildings with a tint.
-        // Geology layers inside the outcrop keep the softer
-        // `makeLayerMaterial` so the drillable rock stays visually
-        // distinct from the surrounding city.
+        // Phase 3 → Phase 11 Part D Toon upgrade:
+        //   * Pre-Phase-11-C USDZs had no texture; hard-cel flat fill
+        //     is the correct behaviour for them and is retained as the
+        //     fallback branch.
+        //   * Phase 11 Part C bakes facade JPGs into the USDZs. The
+        //     legacy "replace every material with a flat cel" would
+        //     throw the baked textures away, which was the whole
+        //     regression this function exists to prevent.
         //
-        // True NdotL step-ramp (ADR-0004 scheme A) is still follow-up
-        // work pending Reality Composer Pro authoring.
-        let material = ToonMaterialFactory.makeHardCelMaterial(
+        // See ADR-0004 (Toon) for the Scheme C rationale and ADR-0008
+        // § Phase 6.1 for why these tiles end up as single merged
+        // meshes at runtime.
+        let fallbackCel = ToonMaterialFactory.makeHardCelMaterial(
             baseColor: baseColor
         )
 
@@ -548,17 +575,54 @@ public final class PlateauEnvironmentLoader {
         var stack: [Entity] = [root]
         while let current = stack.popLast() {
             if var modelComponent = current.components[ModelComponent.self] {
-                // Replace all material slots. Blocky / single-colour
-                // look per ADR-0004; a future Phase 2 Beta task will
-                // diversify at the individual-building level.
                 let count = max(1, modelComponent.materials.count)
-                modelComponent.materials = Array(
-                    repeating: material,
-                    count: count
-                )
+                var newSlots: [RealityKit.Material] = []
+                newSlots.reserveCapacity(count)
+                for index in 0..<count {
+                    let existing: RealityKit.Material? =
+                        index < modelComponent.materials.count
+                        ? modelComponent.materials[index]
+                        : nil
+                    newSlots.append(
+                        hybridTintedMaterial(
+                            for: existing,
+                            fallback: fallbackCel
+                        )
+                    )
+                }
+                modelComponent.materials = newSlots
                 current.components.set(modelComponent)
             }
             stack.append(contentsOf: current.children)
         }
+    }
+
+    /// Branch-selection predicate for `applyHybridToonTint`. Returns:
+    ///
+    /// * The result of `ToonMaterialFactory.mutateIntoTexturedCel(_:)`
+    ///   if `existing` is a `PhysicallyBasedMaterial` **and** carries a
+    ///   non-nil `baseColor.texture` (i.e. the USDZ baked a texture
+    ///   into that slot).
+    /// * `fallback` otherwise — for `SimpleMaterial`, untextured PBR,
+    ///   `nil` slots, or any material type the mutator cannot identify.
+    ///
+    /// Exposed `internal` so `PlateauEnvironmentLoaderMaterialTests`
+    /// can exercise the branch directly without constructing a full
+    /// entity hierarchy.
+    internal static func hybridTintedMaterial(
+        for existing: RealityKit.Material?,
+        fallback: RealityKit.Material
+    ) -> RealityKit.Material {
+        guard let pbr = existing as? PhysicallyBasedMaterial else {
+            return fallback
+        }
+        // The texture survival test: if the USDZ shipped an actual
+        // baseColor texture, keep it and push the rest of the material
+        // toward the painted-cel look. Otherwise the PBR is just a
+        // tinted PBR and the hard-cel replacement is the right answer.
+        guard pbr.baseColor.texture != nil else {
+            return fallback
+        }
+        return ToonMaterialFactory.mutateIntoTexturedCel(pbr)
     }
 }
