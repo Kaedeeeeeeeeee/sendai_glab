@@ -74,6 +74,8 @@ RawAssets/
 # Reality Converter is in the pipeline.
 !Resources/**/*.glb
 # NOTE: processed USDZ under Resources/ IS committed (with LFS)
+# Plateau-pipeline idempotency stamp sidecars (local build artifacts)
+Resources/**/*.usdz.version
 
 # Python (for Tools/)
 __pycache__/
