@@ -70,13 +70,37 @@ From the Phase 11 plan file:
 | Risk | Outcome |
 | --- | --- |
 | R1: iOS 18 `baseColor.texture` read-only | Mitigated. iOS 26.4 swiftinterface exposes it as public read/write. Round-trip via value-copy works cleanly. Fallback path never needed. |
-| R2: nusamai no `--appearance` flag | Real. No flag exists; fixed by Layer 1 file-layout alone. |
+| R2: nusamai texture passthrough | **Realized — nusamai 0.1.0 cannot emit building textures at all.** See "nusamai 0.1.0 limitation" below. Bldg texture rollout deferred. |
 | R3: GSI attribution | Realized. Addressed via `Resources/Credits.md` + in-game credits. |
 | R4: Smart UV Project fallback | Avoided. Manual planar UV is simpler and correct-by-construction. |
-| R5: Bundle +15 MB overrun | Realized at +15.5 MB. On target. |
-| R6: 512² facade readability | Not yet playtested post-regen. Escape valve: bump to 768 with one constant change. |
-| R7: Multi-material per tile | Not observed; Blender's join handles multi-slot gracefully. |
-| R8: nusamai re-convert time | ~30 min/tile; acceptable as one-off. |
+| R5: Bundle +15 MB overrun | Partial. DEM ortho adds ~1 MB (actual shipped increment). Full +15 MB was blocked by R2 and awaits nusamai upgrade. |
+| R6: 512² facade readability | Not yet reachable (bldg textures blocked by R2). |
+| R7: Multi-material per tile | Not yet tested (blocked by R2). |
+| R8: nusamai re-convert time | ~1s/tile for 0.1.0; trivial. |
+
+## nusamai 0.1.0 limitation (discovered during Phase 11 Wave 4 execution)
+
+Agent α inferred from binary strings that nusamai's texture passthrough would be purely layout-driven — if the `_appearance/` folder sits next to the GML on disk, the gltf sink would emit a textured GLB. **This is false for nusamai 0.1.0**:
+
+- The **gltf sink** in 0.1.0 accepts exactly one transformer option — `use_lod` — and no sink options related to textures. The emitted GLB carries a single flat material with `images: 0, textures: 0` regardless of adjacent appearance files. Verified by running nusamai against tile 57403619 (which has 1066 JPGs in its appearance folder) and inspecting the output binary: no image references whatsoever.
+- The **3dtiles sink** parses texture-related sink options (`limit_texture_resolution`, `include_textures`, `atlas_size`, etc.) but in 0.1.0 these are wired to a texture-atlas code path that does not produce output tile GLBs — a run terminates with only `tileset.json` and no tile content.
+- The binary contains strings like `textured_max_lod` and `atlas-packer` / `texture_resolution.rs`, indicating a partial implementation. The missing piece is not our pipeline; it is nusamai's feature completion.
+
+Additionally discovered during Wave 4: **of the 5 corridor tiles we ship, only 57403619 (Tohoku Gakuin) has an `_appearance/` folder in the 2024 Sendai release zip**. The other four tiles (57403607 / 608 / 617 / 618) have **no source facade textures** at all. Even with a working nusamai, 4 of 5 tiles would render untextured.
+
+### What we shipped anyway
+
+- Parts A–D Swift + pipeline code all landed (extract unpacks `_appearance/`, Blender split preserves materials, runtime hybrid tint mutator handles textured PBR). These are architecturally correct and will light up the instant nusamai ships a working texture path.
+- **Part E (DEM orthophoto) landed end-to-end** — GSI download + stitch + UV + Blender bake + runtime hybrid predicate. The DEM USDZ in `Resources/Environment/Terrain_Sendai_574036_05.usdz` now carries a 326 KB embedded GSI orthophoto; verified by `unzip -l` and a clean `swift test` + iOS simulator build.
+- Building texture regen was skipped. The 5 existing USDZs from Phase 6.1 remain in place, each still rendering with the hard-cel fallback on the runtime hybrid path. The Part D tests (`testMutateIntoTexturedCelPreservesBaseColorTexture` and friends) exercise the mutator against synthetic materials so a future nusamai upgrade that finally ships bldg textures doesn't need a Swift change — it just needs the pipeline rerun.
+
+### Unblock criteria (for a future phase)
+
+Any one of:
+
+1. **nusamai upgrade**. Watch the project for a release where `nusamai --sink gltf` embeds textures when the `_appearance/` folder is adjacent. When the CI-relevant release lands, rerun `extract_bldg_gmls.sh` → `convert.sh` → `split_all_bldgs.sh` and commit the regenerated USDZs.
+2. **Blender post-process**. Write a script that parses CityGML `<app:TextureFile>` / `<app:target uri="#polygon_id">` entries from the GML directly, matches them against the Blender-imported mesh by the original polygon IDs (stored in a nusamai side-channel), and attaches image materials. Estimated 1–2 days; not attempted yet.
+3. **Switch source data**. If PLATEAU releases a newer Sendai bundle with `_appearance/` for all 5 tiles, re-download and re-run the pipeline. No code change required.
 
 ## References
 

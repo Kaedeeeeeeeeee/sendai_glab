@@ -84,10 +84,23 @@ for tile in "${TILES[@]}"; do
         echo "[skip] $rel_app_dir already extracted"
         appearance_skipped=$((appearance_skipped + 1))
     else
+        # Not every PLATEAU tile has baked facade textures — in the 2024
+        # Sendai release, for the 5 corridor tiles we ship, only 57403619
+        # (Tohoku Gakuin) has an `_appearance/` folder. The other 4 tiles
+        # correctly have NO JPGs in the source zip and will fall through
+        # to the runtime hybrid tint's flat-cel fallback.
+        #
+        # unzip exits with code 11 ("filename not matched") when the
+        # pattern matches nothing, which under `set -e` would kill the
+        # script — so we guard the invocation and treat "no match" as a
+        # documented, informational state rather than an error.
         echo "[extract] $rel_app_dir/* …"
-        # Glob pattern pulls every file under the directory (recursive).
-        /usr/bin/unzip -o "$ZIP" "${rel_app_dir}/*" -d "$EXTRACT_DIR" >/dev/null
-        appearance_extracted=$((appearance_extracted + 1))
+        if /usr/bin/unzip -o "$ZIP" "${rel_app_dir}/*" -d "$EXTRACT_DIR" >/dev/null 2>&1; then
+            appearance_extracted=$((appearance_extracted + 1))
+        else
+            echo "[info]    $rel_app_dir not present in zip — tile will render untextured"
+            appearance_missing=$((${appearance_missing:-0} + 1))
+        fi
     fi
 done
 
@@ -95,7 +108,7 @@ done
 
 echo
 echo "GML:         extracted=$extracted skipped=$skipped"
-echo "Appearance:  extracted=$appearance_extracted skipped=$appearance_skipped"
+echo "Appearance:  extracted=$appearance_extracted skipped=$appearance_skipped missing=${appearance_missing:-0}"
 /bin/ls -lh "${EXTRACT_DIR}/udx/bldg/"*.gml 2>/dev/null || true
 
 # Tally the JPG payload so the user can see it landed.

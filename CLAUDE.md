@@ -422,11 +422,31 @@ xcodebuild -scheme SendaiGLab -destination 'platform=iOS Simulator,name=iPad Pro
 
 **予算**:Environment USDZ 合計 6 MB → ~21.5 MB(+15.5 MB 内、Git LFS 自動追跡)。
 
+**Wave 4 実行で発覚したリスク R2(nusamai 0.1.0 限界)** — ADR-0012 に記録済:
+
+- nusamai 0.1.0 の `gltf` sink は texture 関連オプションを一切サポートしていない
+  (`use_lod` のみ)。adjacent `_appearance/` folder は何の効果も持たない。
+- `3dtiles` sink はオプション文字列を parse するが 0.1.0 では機能未完成で tile GLB を書き出さない。
+- 追加発見:5 tile のうち **57403619 の 1 つだけ**が PLATEAU 2024 release の zip に
+  `_appearance/` folder を持つ。他 4 tile は source データ側でテクスチャ無し。
+
+**実際に ship したもの**:
+- Part A–D の Swift + pipeline コードは全部 land(nusamai 新版が来たら即点火する仕込み)
+- **Part E (DEM orthophoto) 完走** — Terrain USDZ に 326 KB GSI 卫星图が焼き込まれた
+  (`unzip -l` で `textures/sendai_574036_05.jpg` 確認済)
+- 建物 USDZ 再生成は skip(意味がないため — hybrid runtime の fallback branch で
+  現状維持)
+
+**unblock 条件**(将来 phase):
+1. nusamai upgrade が `--sink gltf` で texture を emit するように
+2. CityGML の `<app:TextureFile>` を Blender で手動 remap する post-process script
+3. PLATEAU の再リリースで全 5 tile に `_appearance/` が入る
+
 **未検証(次 playtest)**:
-- 5 tile 全部真機で facade 実写表示
-- DEM 地面が仙台衛星写真
-- 走廊 FPS(現状 60 fps、テクスチャで 50+ fps 維持想定)
-- outline 濃度 + emissive で "painted-realistic" 感
+- DEM 地面が仙台衛星写真として真機でまともに表示されるか
+- UV 方向が合ってるか(逆転が必要なら dem_to_terrain_usdz.py で u/v を flip)
+- 走廊 FPS(現状 60 fps、1024² JPG 1 枚で落ちないはず)
+- outline 濃度 + emissive で "painted-realistic" 感(地面だけ)
 
 ### Phase 3 残り候補(次回以降)
 

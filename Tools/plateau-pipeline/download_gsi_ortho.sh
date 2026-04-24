@@ -112,7 +112,11 @@ echo "[1/3] DEM envelope → GSI z${Z} tile range:"
 echo "      x=[${MIN_X}..${MAX_X}] y=[${MIN_Y}..${MAX_Y}] (${COUNT} tile(s))"
 echo "      lat=[${LAT_MIN}..${LAT_MAX}] lon=[${LON_MIN}..${LON_MAX}]"
 
-if (( COUNT > 400 )); then
+if (( COUNT > 700 )); then
+    # A full DEM quadrant (5.4 × 4.7 km) at zoom 17 is ~504 tiles; we
+    # bump the guard to 700 so the first honest run doesn't trip, while
+    # still catching an "accidentally requested half of Japan" scenario.
+    # At 0.1 s politeness sleep per tile, 504 tiles ≈ 1 min download.
     echo "error: tile count ${COUNT} is suspiciously large — refusing to flood GSI" >&2
     exit 4
 fi
