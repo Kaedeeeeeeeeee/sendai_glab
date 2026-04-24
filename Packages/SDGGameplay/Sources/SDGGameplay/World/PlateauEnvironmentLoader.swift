@@ -529,6 +529,14 @@ public final class PlateauEnvironmentLoader {
         // Iterative depth-first walk. Recursing into the built-in
         // tree can blow the stack on dense PLATEAU scenes (hundreds
         // of building parts); an explicit stack keeps us flat.
+        //
+        // Phase 9 Part G: each ModelComponent-bearing entity also
+        // gets a generated collision shape so `PlayerControlSystem`
+        // can raycast against building walls to keep the player out.
+        // Shapes are derived from the mesh AABB (cheap; good enough
+        // for the boxy PLATEAU LOD2 output — every building is
+        // effectively a stack of axis-aligned boxes after Phase 6.1
+        // merged it into one mesh).
         var stack: [Entity] = [root]
         while let current = stack.popLast() {
             if var modelComponent = current.components[ModelComponent.self] {
@@ -541,6 +549,11 @@ public final class PlateauEnvironmentLoader {
                     count: count
                 )
                 current.components.set(modelComponent)
+
+                // Phase 9 Part G: generate an AABB collision shape
+                // from the mesh. `recursive: false` keeps the cost
+                // bounded per-entity; the DFS itself handles children.
+                current.generateCollisionShapes(recursive: false)
             }
             stack.append(contentsOf: current.children)
         }

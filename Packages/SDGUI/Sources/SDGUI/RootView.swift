@@ -247,10 +247,12 @@ public struct RootView: View {
         every: 0.1, on: .main, in: .common
     ).autoconnect()
 
-    /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
-    /// device width on iPad landscape; a 1000-pt drag rotating by one
-    /// radian (≈57°) feels right on first play.
-    private let lookSensitivity: Float = 1.0 / 1000.0
+    /// Look sensitivity: screen-space points per radian.
+    /// Phase 9 Part G: 1/1000 → 1/500 after device feedback — the
+    /// original rate felt sluggish. 1/500 means a full-device-width
+    /// drag rotates ~2.5 rad (≈115°), which matches the "flick to
+    /// look around" feel typical iOS camera controls use.
+    private let lookSensitivity: Float = 1.0 / 500.0
 
     /// Default public initializer. Allocates placeholder stores tied to
     /// an empty bus; `.task` re-binds them to the real env bus on first
