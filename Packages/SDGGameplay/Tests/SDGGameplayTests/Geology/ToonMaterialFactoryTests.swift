@@ -549,4 +549,211 @@ final class ToonMaterialFactoryTests: XCTestCase {
             "Fallback path must return PhysicallyBasedMaterial (hard-cel Scheme C-v2)."
         )
     }
+
+    // MARK: - Phase 11 Part D: textured PBR → painted cel
+
+    /// Build a 1×1 `TextureResource` via a white `CGImage` backed by
+    /// `CGBitmapInfo`. This does NOT touch Metal — `TextureResource`
+    /// will allocate GPU resources lazily (on first sampler use),
+    /// which means the test suite can run even when the XCTest process
+    /// has no Metal device (macOS CI with no GPU).
+    ///
+    /// Returns `nil` if `CGImage` creation fails (e.g. colour space
+    /// unavailable on the host). The three tests below skip via
+    /// `XCTSkipIf` in that case — they are testing the factory's
+    /// behaviour, not the OS's image stack.
+    @MainActor
+    private func makeTinyWhiteTexture() throws -> TextureResource? {
+        let width = 1
+        let height = 1
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: cs,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let cg = ctx.makeImage() else { return nil }
+        // `TextureResource.generate(from:options:)` is the iOS 18 entry
+        // point — throws on malformed input (won't happen for a 1×1
+        // sRGB bitmap) or when the underlying image layer can't build
+        // a backing texture.
+        do {
+            return try TextureResource(
+                image: cg,
+                options: TextureResource.CreateOptions(semantic: .color)
+            )
+        } catch {
+            // Surface *why* we're skipping rather than returning nil
+            // silently — see CLAUDE.md pitfall #9.
+            print(
+                "[SDG-Lab][toon-test] TextureResource.init skipped: \(error)"
+            )
+            return nil
+        }
+    }
+
+    /// The whole point of the Phase 11 Part D mutator: feeding it a
+    /// `PhysicallyBasedMaterial` with a real `baseColor.texture` must
+    /// produce a material whose `baseColor.texture` is the same
+    /// resource — not nil, not a stub, not a white placeholder.
+    ///
+    /// We compare via `TextureResource.Equatable` (RealityKit's own
+    /// equality; see the swiftinterface). Pointer identity via `===`
+    /// doesn't hold because `MaterialParameters.Texture` round-trips
+    /// the resource through an internal storage layer that may hand
+    /// back a fresh wrapper object — what matters for rendering is
+    /// that the underlying texture content is the same, which
+    /// `==` checks.
+    func testMutateIntoTexturedCelPreservesBaseColorTexture() throws {
+        let texture = try makeTinyWhiteTexture()
+        try XCTSkipIf(
+            texture == nil,
+            "CGImage/TextureResource unavailable on host; not a factory bug."
+        )
+        let resource = texture!
+
+        var input = PhysicallyBasedMaterial()
+        input.baseColor = .init(tint: .white, texture: .init(resource))
+        XCTAssertNotNil(input.baseColor.texture, "setup check")
+        let inputResource = try XCTUnwrap(
+            input.baseColor.texture?.resource,
+            "setup: input must carry a resource after assignment"
+        )
+
+        let output = ToonMaterialFactory.mutateIntoTexturedCel(input)
+        let outputTexture = try XCTUnwrap(
+            output.baseColor.texture,
+            "mutator must preserve the baseColor.texture — this is the whole contract"
+        )
+        // RealityKit's TextureResource is Equatable — equality is the
+        // right semantic here (same content, same backing), not pointer
+        // identity.
+        XCTAssertEqual(
+            outputTexture.resource, inputResource,
+            "mutator must preserve the underlying TextureResource"
+        )
+        // And the output must definitely not be `nil` or the default
+        // white placeholder — if the mutator accidentally wiped the
+        // texture, read-back would give either nil or a fresh default
+        // resource (not equal to our 1×1 sRGB fixture).
+        XCTAssertEqual(
+            outputTexture.resource, resource,
+            "output texture must equal the fixture we put in"
+        )
+    }
+
+    /// The mutator must raise the emissive contribution so the texture
+    /// reads brighter on the shadow side. The boost is encoded as
+    /// `emissiveColor = white @ ~25 % alpha` (from the default black
+    /// `EmissiveColor`, which contributes zero). We read the
+    /// `emissiveColor.color` components back and assert each is
+    /// meaningfully brighter than the input's.
+    ///
+    /// Note: `emissiveIntensity` alone isn't a useful signal because
+    /// `PhysicallyBasedMaterial()` ships with `emissiveIntensity = 1.0`
+    /// by default (the scalar is applied to whatever colour is set).
+    /// The real "brighter" signal is in the colour's luminance.
+    func testMutateIntoTexturedCelBoostsEmissive() throws {
+        let texture = try makeTinyWhiteTexture()
+        try XCTSkipIf(
+            texture == nil,
+            "CGImage/TextureResource unavailable on host; not a factory bug."
+        )
+
+        var input = PhysicallyBasedMaterial()
+        input.baseColor = .init(tint: .white, texture: .init(texture!))
+        // Input's default EmissiveColor is black (zero contribution).
+        let inputColor = input.emissiveColor.color
+        var ir: CGFloat = 0, ig: CGFloat = 0, ib: CGFloat = 0, ia: CGFloat = 0
+        #if canImport(UIKit)
+        inputColor.getRed(&ir, green: &ig, blue: &ib, alpha: &ia)
+        #elseif canImport(AppKit)
+        inputColor.usingColorSpace(.sRGB)?.getRed(
+            &ir, green: &ig, blue: &ib, alpha: &ia
+        )
+        #endif
+        // Input luminance is ~0 (default black emissive).
+        let inputLuminance = ir * ia + ig * ia + ib * ia
+
+        let output = ToonMaterialFactory.mutateIntoTexturedCel(input)
+
+        let outputColor = output.emissiveColor.color
+        var or: CGFloat = 0, og: CGFloat = 0, ob: CGFloat = 0, oa: CGFloat = 0
+        #if canImport(UIKit)
+        outputColor.getRed(&or, green: &og, blue: &ob, alpha: &oa)
+        #elseif canImport(AppKit)
+        outputColor.usingColorSpace(.sRGB)?.getRed(
+            &or, green: &og, blue: &ob, alpha: &oa
+        )
+        #endif
+        let outputLuminance = or * oa + og * oa + ob * oa
+
+        XCTAssertGreaterThan(
+            outputLuminance, inputLuminance,
+            "mutator must raise emissive luminance above the input's " +
+            "(default PhysicallyBasedMaterial has black emissive)"
+        )
+        // Pin the documented constant so a silent knob change shows up
+        // as a test signal rather than a visual regression on device.
+        XCTAssertEqual(
+            ToonMaterialFactory.texturedCelEmissiveWhiteAlpha,
+            0.25, accuracy: 1e-5,
+            "Phase 11 Part D pins the emissive white alpha at 0.25."
+        )
+        // And the output alpha must match the documented boost level
+        // (within a wide tolerance — UIColor round-trips through sRGB
+        // may nudge fractional values).
+        XCTAssertEqual(
+            oa, 0.25, accuracy: 1e-3,
+            "emissiveColor alpha must equal the documented boost (0.25)"
+        )
+    }
+
+    /// Specular must be killed (scalar 0) on the mutator's output —
+    /// part of the "no PBR highlight" contract. We read `metallic` as
+    /// the closest public proxy the SDK exposes alongside `specular`
+    /// (setters for both use the same `MaterialScalarParameter` shape,
+    /// so the intent is verified through both together).
+    func testMutateIntoTexturedCelKillsSpecular() throws {
+        let texture = try makeTinyWhiteTexture()
+        try XCTSkipIf(
+            texture == nil,
+            "CGImage/TextureResource unavailable on host; not a factory bug."
+        )
+
+        // Input with specular "on" via specular = 1, metallic = 1,
+        // clearcoat = 1. The mutator zeroes specular explicitly and
+        // also kills metallic/clearcoat — the three PBR terms that
+        // can produce a highlight.
+        var input = PhysicallyBasedMaterial()
+        input.baseColor = .init(tint: .white, texture: .init(texture!))
+        input.specular = .init(floatLiteral: 1.0)
+        input.metallic = .init(floatLiteral: 1.0)
+        input.clearcoat = .init(floatLiteral: 1.0)
+
+        let output = ToonMaterialFactory.mutateIntoTexturedCel(input)
+        XCTAssertEqual(
+            output.specular.scale, 0, accuracy: 1e-5,
+            "mutator must zero specular (explicit Borderlands-ish contract)"
+        )
+        XCTAssertEqual(
+            output.metallic.scale, 0, accuracy: 1e-5,
+            "mutator must zero metallic (removes PBR metal highlight)"
+        )
+        XCTAssertEqual(
+            output.clearcoat.scale, 0, accuracy: 1e-5,
+            "mutator must zero clearcoat (removes residual sheen)"
+        )
+        XCTAssertEqual(
+            output.roughness.scale, 1, accuracy: 1e-5,
+            "mutator must max roughness (painted look)"
+        )
+    }
 }
