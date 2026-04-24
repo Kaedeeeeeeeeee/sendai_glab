@@ -604,8 +604,16 @@ public struct RootView: View {
             sceneRefs.sampleContainer = samples
 
             // 6. Phase 9 Part F — interior lab + outdoor portal pair.
+            // Outdoor exit lands the player 3 m NORTH of the portal
+            // (portal sits at z = -5; exit at z = -2). `SceneTransitionStore
+            // .triggerRadius` is 2 m, so 3 m leaves a 1 m buffer
+            // before the next proximity tick re-triggers the portal —
+            // otherwise the player pops out and is immediately sucked
+            // back in. The previous offset (-5 + 1.5 = -3.5) placed
+            // them 1.5 m from the portal, well inside the trigger
+            // radius, which manifested as "exit instantly re-enters".
             let lab = InteriorSceneBuilder.build(
-                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 1.5)
+                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 3.0)
             )
             lab.position = SIMD3<Float>(0, 0, 0)
             lab.isEnabled = false
