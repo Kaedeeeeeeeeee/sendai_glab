@@ -76,7 +76,9 @@ class Thresholds:
 
 
 # File naming regexes derived from Docs/AssetPipeline.md
-RE_ENVIRONMENT = re.compile(r"^Environment_[A-Za-z0-9]+_[A-Za-z0-9]+\.usdz$")
+RE_ENVIRONMENT = re.compile(
+    r"^(Environment|Terrain)_[A-Za-z0-9]+_[A-Za-z0-9_]+\.usdz$"
+)
 # Variant is optional — NPCs with only one form (e.g. Kaede, Teacher)
 # legitimately have no variant suffix. Player characters still use
 # Role_Variant (Player_Male / Player_Female).

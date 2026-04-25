@@ -65,6 +65,10 @@ Tools/*/intermediate/
 Tools/*/output/
 Tools/*/cache/
 
+# Plateau-pipeline extracted CityGML + appearance JPGs (regenerated
+# from source zip on demand by extract_bldg_gmls.sh; never commit).
+Tools/plateau-pipeline/input/extracted/
+
 # Large raw assets (should be in LFS or external storage)
 RawAssets/
 *.gml
@@ -74,6 +78,8 @@ RawAssets/
 # Reality Converter is in the pipeline.
 !Resources/**/*.glb
 # NOTE: processed USDZ under Resources/ IS committed (with LFS)
+# Plateau-pipeline idempotency stamp sidecars (local build artifacts)
+Resources/**/*.usdz.version
 
 # Python (for Tools/)
 __pycache__/
@@ -97,3 +103,5 @@ logs/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+.claude/worktrees/

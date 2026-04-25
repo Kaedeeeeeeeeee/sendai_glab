@@ -1,0 +1,50 @@
+{
+  "regionId": "aobayama-castle",
+  "nameKey": "geology.region.aobayama-castle.name",
+  "source": "Wikipedia 仙台層群 + 青葉城跡 地質巡検 + 日本地質学会",
+  "confidence": "needs_geologist_review",
+  "layers": [
+    {
+      "id": "aobayama-castle.topsoil",
+      "nameKey": "geology.layer.topsoil.name",
+      "thickness": 0.5,
+      "colorHex": "#6B4C2F",
+      "lithology": "topsoil"
+    },
+    {
+      "id": "aobayama-castle.terrace",
+      "nameKey": "geology.layer.terrace.name",
+      "thickness": 2.0,
+      "colorHex": "#C2A878",
+      "lithology": "terrace deposits"
+    },
+    {
+      "id": "aobayama-castle.mukaiyama",
+      "nameKey": "geology.layer.mukaiyama.name",
+      "thickness": 28.0,
+      "colorHex": "#4A4A52",
+      "lithology": "mudstone with lignite and tuff"
+    },
+    {
+      "id": "aobayama-castle.tatsunokuchi",
+      "nameKey": "geology.layer.tatsunokuchi.name",
+      "thickness": 22.0,
+      "colorHex": "#3C4A55",
+      "lithology": "marine mudstone and sandstone"
+    },
+    {
+      "id": "aobayama-castle.kameoka",
+      "nameKey": "geology.layer.kameoka.name",
+      "thickness": 8.0,
+      "colorHex": "#D4B366",
+      "lithology": "basal sandstone"
+    },
+    {
+      "id": "aobayama-castle.basement",
+      "nameKey": "geology.layer.basement.name",
+      "thickness": 0.0,
+      "colorHex": "#2F2F35",
+      "lithology": "basement"
+    }
+  ]
+}

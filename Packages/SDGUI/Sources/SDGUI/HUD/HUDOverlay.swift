@@ -66,6 +66,8 @@
 // pass.
 
 import SwiftUI
+import RealityKit
+import simd
 import SDGCore
 import SDGGameplay
 
@@ -116,10 +118,23 @@ public struct HUDOverlay: View {
     /// Source of the sample count shown on the inventory badge.
     @Bindable public var inventoryStore: InventoryStore
 
+    /// Phase 7: drives the contextual Board / Exit button. The HUD
+    /// reads `occupiedVehicleId` and `summonedVehicles` to pick the
+    /// button mode; tap handlers forward into the Store through the
+    /// caller-supplied closures below.
+    @Bindable public var vehicleStore: VehicleStore
+
     /// Two-way binding to the joystick axis. The parent owns the
     /// value (typically `@State`) and is responsible for
     /// forwarding changes into `PlayerControlStore.intent(.move)`.
     @Binding public var joystickAxis: SIMD2<Float>
+
+    /// Phase 7.1 — vertical stick value for drone climb/descend.
+    /// Written by the embedded `VerticalSliderView`; the parent
+    /// forwards it into `vehicleStore.intent(.pilot(vertical:))`.
+    /// Visible only while a vehicle is occupied; see
+    /// `verticalSliderVisible` below.
+    @Binding public var verticalSliderValue: Float
 
     /// Invoked on drill-button tap. Typically wraps an
     /// `await drillingStore.intent(.drillAt(...))` in a `Task`.
@@ -128,6 +143,24 @@ public struct HUDOverlay: View {
     /// Invoked on inventory-badge tap. Phase 1: no-op. Phase 2
     /// (P1-T9): push the inventory grid sheet.
     public let onInventoryTapped: () -> Void
+
+    /// Phase 7: Board button tapped. Parent receives the vehicle id
+    /// whose snapshot is nearest the player (within 3 m) and is
+    /// expected to `await vehicleStore.intent(.enter(vehicleId:))`.
+    /// Invoked only when the button is in `.boardAvailable` mode.
+    public let onBoardTapped: (UUID) -> Void
+
+    /// Phase 7: Exit button tapped. Invoked only when the button is
+    /// in `.exitAvailable` mode. Parent dispatches
+    /// `await vehicleStore.intent(.exit)`.
+    public let onExitVehicleTapped: () -> Void
+
+    /// Live world-space position of the player body. Updated by the
+    /// parent (RootView) via a low-frequency poll — SwiftUI redraws
+    /// the HUD only when this value crosses the 3 m proximity
+    /// threshold into / out of a vehicle radius, so a 100 ms tick
+    /// is plenty (the button doesn't need per-frame precision).
+    public let playerWorldPosition: SIMD3<Float>
 
     // MARK: - Init
 
@@ -150,16 +183,65 @@ public struct HUDOverlay: View {
         playerStore: PlayerControlStore,
         drillingStore: DrillingStore,
         inventoryStore: InventoryStore,
+        vehicleStore: VehicleStore,
         joystickAxis: Binding<SIMD2<Float>>,
+        verticalSliderValue: Binding<Float>,
+        playerWorldPosition: SIMD3<Float>,
         onDrillTapped: @escaping () -> Void,
-        onInventoryTapped: @escaping () -> Void
+        onInventoryTapped: @escaping () -> Void,
+        onBoardTapped: @escaping (UUID) -> Void,
+        onExitVehicleTapped: @escaping () -> Void
     ) {
         self.playerStore = playerStore
         self.drillingStore = drillingStore
         self.inventoryStore = inventoryStore
+        self.vehicleStore = vehicleStore
         self._joystickAxis = joystickAxis
+        self._verticalSliderValue = verticalSliderValue
+        self.playerWorldPosition = playerWorldPosition
         self.onDrillTapped = onDrillTapped
         self.onInventoryTapped = onInventoryTapped
+        self.onBoardTapped = onBoardTapped
+        self.onExitVehicleTapped = onExitVehicleTapped
+    }
+
+    /// Phase 7 backward-compat init — kept so the pre-7.1 RootView
+    /// call sites continue to compile while the Phase 9 D integration
+    /// note threads the new `verticalSliderValue` binding through. The
+    /// omitted binding defaults to a constant-zero so the slider
+    /// renders as hidden (`verticalSliderVisible` still gates
+    /// visibility on `occupiedVehicleId`, so the only effect is that
+    /// the drone cannot climb/descend until the parent actually
+    /// wires a real binding).
+    ///
+    /// Delete this convenience init once every integration site has
+    /// been updated — retaining two overloads indefinitely would
+    /// invite new callers to skip the slider entirely.
+    public init(
+        playerStore: PlayerControlStore,
+        drillingStore: DrillingStore,
+        inventoryStore: InventoryStore,
+        vehicleStore: VehicleStore,
+        joystickAxis: Binding<SIMD2<Float>>,
+        playerWorldPosition: SIMD3<Float>,
+        onDrillTapped: @escaping () -> Void,
+        onInventoryTapped: @escaping () -> Void,
+        onBoardTapped: @escaping (UUID) -> Void,
+        onExitVehicleTapped: @escaping () -> Void
+    ) {
+        self.init(
+            playerStore: playerStore,
+            drillingStore: drillingStore,
+            inventoryStore: inventoryStore,
+            vehicleStore: vehicleStore,
+            joystickAxis: joystickAxis,
+            verticalSliderValue: .constant(0),
+            playerWorldPosition: playerWorldPosition,
+            onDrillTapped: onDrillTapped,
+            onInventoryTapped: onInventoryTapped,
+            onBoardTapped: onBoardTapped,
+            onExitVehicleTapped: onExitVehicleTapped
+        )
     }
 
     // MARK: - Body
@@ -170,6 +252,7 @@ public struct HUDOverlay: View {
             // alignments stay readable and the four widgets
             // don't fight over a shared layout container.
             joystickCorner
+            verticalSliderColumn
             drillCorner
             inventoryCorner
             statusBannerArea
@@ -192,19 +275,49 @@ public struct HUDOverlay: View {
         }
     }
 
-    /// Bottom-right: 80 pt drill action button.
+    /// Bottom-right: 80 pt drill action button, with the Phase 7
+    /// BoardButton stacked above it when a vehicle is in reach
+    /// (or when the player is already piloting one).
     private var drillCorner: some View {
         VStack {
             Spacer()
             HStack {
                 Spacer()
-                DrillButton(
-                    onTap: onDrillTapped,
-                    isDrilling: isDrilling
-                )
+                VStack(spacing: 16) {
+                    BoardButton(
+                        mode: boardButtonMode,
+                        onTap: handleBoardOrExitTapped
+                    )
+                    DrillButton(
+                        onTap: onDrillTapped,
+                        isDrilling: isDrilling
+                    )
+                }
                 .padding(.trailing, 40)
                 .padding(.bottom, 40)
             }
+        }
+    }
+
+    /// Right-edge, mid-height: 80×200 pt vertical climb stick. Sits
+    /// just left of the DrillButton / BoardButton column so the
+    /// pilot's thumb moves naturally between planar (left-bottom
+    /// joystick) and vertical (right-mid slider) inputs. Visible
+    /// only while a vehicle is occupied; otherwise the embedded
+    /// `VerticalSliderView` collapses to `EmptyView()` and takes
+    /// no layout space.
+    private var verticalSliderColumn: some View {
+        HStack {
+            Spacer()
+            VerticalSliderView(
+                output: $verticalSliderValue,
+                isVisible: verticalSliderVisible
+            )
+            .frame(
+                width: verticalSliderVisible ? 80 : 0,
+                height: verticalSliderVisible ? 200 : 0
+            )
+            .padding(.trailing, 140) // clear of the Drill/Board column
         }
     }
 
@@ -256,6 +369,76 @@ public struct HUDOverlay: View {
     private var isDrilling: Bool {
         if case .drilling = drillingStore.status { return true }
         return false
+    }
+
+    /// Board-proximity threshold. 3 m matches the "standing next
+    /// to your vehicle" feel — close enough that the player
+    /// clearly walked up to it, far enough that they don't have
+    /// to clip into the mesh. Tuning knob; raise if the button
+    /// pops on/off too aggressively.
+    private static let boardProximityMeters: Float = 3.0
+
+    /// Phase 7.1 — show the vertical slider only while the player
+    /// pilots a vehicle. On foot, the slider would be a hanging UI
+    /// element with no effect (the Store ignores `.pilot` when
+    /// `occupiedVehicleId == nil`), so we hide it entirely. Reading
+    /// from the Store keeps the visibility source-of-truth in one
+    /// place — parents don't need to thread a separate flag.
+    private var verticalSliderVisible: Bool {
+        vehicleStore.occupiedVehicleId != nil
+    }
+
+    /// Resolve what the BoardButton should render. Order of checks
+    /// matters:
+    /// 1. If the player is piloting → `.exitAvailable` always wins;
+    /// 2. Else if any summoned vehicle is within range → `.boardAvailable`;
+    /// 3. Else → `.hidden`.
+    ///
+    /// Proximity is measured on the live entity world position when
+    /// the scene has registered one (vehicles move during flight),
+    /// falling back to the summon snapshot otherwise.
+    private var boardButtonMode: BoardButtonMode {
+        if vehicleStore.occupiedVehicleId != nil {
+            return .exitAvailable
+        }
+        let threshold = Self.boardProximityMeters
+        for snapshot in vehicleStore.summonedVehicles {
+            let livePosition = vehicleStore.entity(for: snapshot.id)?
+                .position(relativeTo: nil) ?? snapshot.position
+            let delta = livePosition - playerWorldPosition
+            if simd_length(delta) <= threshold {
+                return .boardAvailable
+            }
+        }
+        return .hidden
+    }
+
+    /// Route the BoardButton's single `onTap` into the two callback
+    /// slots on the HUD, based on the current mode. Keeping this in
+    /// one place avoids asking the sub-view to carry two closures.
+    private func handleBoardOrExitTapped() {
+        switch boardButtonMode {
+        case .boardAvailable:
+            // Pick the nearest summoned vehicle; same live-position
+            // resolution as `boardButtonMode` so the button and the
+            // action can't disagree on "which vehicle is nearest".
+            var best: (id: UUID, distance: Float)?
+            for snapshot in vehicleStore.summonedVehicles {
+                let livePosition = vehicleStore.entity(for: snapshot.id)?
+                    .position(relativeTo: nil) ?? snapshot.position
+                let distance = simd_length(livePosition - playerWorldPosition)
+                if best == nil || distance < best!.distance {
+                    best = (snapshot.id, distance)
+                }
+            }
+            if let winner = best {
+                onBoardTapped(winner.id)
+            }
+        case .exitAvailable:
+            onExitVehicleTapped()
+        case .hidden:
+            break
+        }
     }
 
     /// Localized banner text derived from the current drilling

@@ -1,0 +1,43 @@
+{
+  "regionId": "kawauchi",
+  "nameKey": "geology.region.kawauchi.name",
+  "source": "Wikipedia 広瀬川 + 川内キャンパス 地質巡検 + 日本地質学会",
+  "confidence": "needs_geologist_review",
+  "layers": [
+    {
+      "id": "kawauchi.topsoil",
+      "nameKey": "geology.layer.topsoil.name",
+      "thickness": 0.5,
+      "colorHex": "#6B4C2F",
+      "lithology": "topsoil"
+    },
+    {
+      "id": "kawauchi.hirose-lower-terrace",
+      "nameKey": "geology.layer.hirose-lower-terrace.name",
+      "thickness": 6.0,
+      "colorHex": "#C2A878",
+      "lithology": "lower terrace gravel (Hirose)"
+    },
+    {
+      "id": "kawauchi.diluvial-gravel",
+      "nameKey": "geology.layer.diluvial-gravel.name",
+      "thickness": 5.0,
+      "colorHex": "#A89070",
+      "lithology": "diluvial gravel"
+    },
+    {
+      "id": "kawauchi.tatsunokuchi",
+      "nameKey": "geology.layer.tatsunokuchi.name",
+      "thickness": 25.0,
+      "colorHex": "#3C4A55",
+      "lithology": "marine mudstone and sandstone"
+    },
+    {
+      "id": "kawauchi.basement",
+      "nameKey": "geology.layer.basement.name",
+      "thickness": 0.0,
+      "colorHex": "#2F2F35",
+      "lithology": "basement"
+    }
+  ]
+}

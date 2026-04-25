@@ -32,6 +32,7 @@ final class HUDOverlayTests: XCTestCase {
         player: PlayerControlStore,
         drilling: DrillingStore,
         inventory: InventoryStore,
+        vehicle: VehicleStore,
         bus: EventBus
     ) {
         let bus = EventBus()
@@ -39,6 +40,7 @@ final class HUDOverlayTests: XCTestCase {
             PlayerControlStore(eventBus: bus),
             DrillingStore(eventBus: bus),
             InventoryStore(eventBus: bus, persistence: .inMemory),
+            VehicleStore(eventBus: bus),
             bus
         )
     }
@@ -59,13 +61,21 @@ final class HUDOverlayTests: XCTestCase {
         let axisBinding = Binding<SIMD2<Float>>(
             get: { .zero }, set: { _ in }
         )
+        let verticalBinding = Binding<Float>(
+            get: { 0 }, set: { _ in }
+        )
         let overlay = HUDOverlay(
             playerStore: stores.player,
             drillingStore: stores.drilling,
             inventoryStore: stores.inventory,
+            vehicleStore: stores.vehicle,
             joystickAxis: axisBinding,
+            verticalSliderValue: verticalBinding,
+            playerWorldPosition: .zero,
             onDrillTapped: {},
-            onInventoryTapped: {}
+            onInventoryTapped: {},
+            onBoardTapped: { _ in },
+            onExitVehicleTapped: {}
         )
         _ = overlay.body
     }
@@ -91,13 +101,21 @@ final class HUDOverlayTests: XCTestCase {
         let axisBinding = Binding<SIMD2<Float>>(
             get: { .zero }, set: { _ in }
         )
+        let verticalBinding = Binding<Float>(
+            get: { 0 }, set: { _ in }
+        )
         let overlay = HUDOverlay(
             playerStore: stores.player,
             drillingStore: stores.drilling,
             inventoryStore: stores.inventory,
+            vehicleStore: stores.vehicle,
             joystickAxis: axisBinding,
+            verticalSliderValue: verticalBinding,
+            playerWorldPosition: .zero,
             onDrillTapped: {},
-            onInventoryTapped: {}
+            onInventoryTapped: {},
+            onBoardTapped: { _ in },
+            onExitVehicleTapped: {}
         )
         _ = overlay.body
     }
@@ -114,13 +132,21 @@ final class HUDOverlayTests: XCTestCase {
         let axisBinding = Binding<SIMD2<Float>>(
             get: { .zero }, set: { _ in }
         )
+        let verticalBinding = Binding<Float>(
+            get: { 0 }, set: { _ in }
+        )
         _ = HUDOverlay(
             playerStore: stores.player,
             drillingStore: stores.drilling,
             inventoryStore: stores.inventory,
+            vehicleStore: stores.vehicle,
             joystickAxis: axisBinding,
+            verticalSliderValue: verticalBinding,
+            playerWorldPosition: .zero,
             onDrillTapped: {},
-            onInventoryTapped: {}
+            onInventoryTapped: {},
+            onBoardTapped: { _ in },
+            onExitVehicleTapped: {}
         ).body
     }
 
@@ -132,24 +158,35 @@ final class HUDOverlayTests: XCTestCase {
         let stores = makeStores()
         var drillTaps = 0
         var inventoryTaps = 0
+        var exitTaps = 0
 
         let axisBinding = Binding<SIMD2<Float>>(
             get: { .zero }, set: { _ in }
+        )
+        let verticalBinding = Binding<Float>(
+            get: { 0 }, set: { _ in }
         )
         let overlay = HUDOverlay(
             playerStore: stores.player,
             drillingStore: stores.drilling,
             inventoryStore: stores.inventory,
+            vehicleStore: stores.vehicle,
             joystickAxis: axisBinding,
+            verticalSliderValue: verticalBinding,
+            playerWorldPosition: .zero,
             onDrillTapped: { drillTaps += 1 },
-            onInventoryTapped: { inventoryTaps += 1 }
+            onInventoryTapped: { inventoryTaps += 1 },
+            onBoardTapped: { _ in },
+            onExitVehicleTapped: { exitTaps += 1 }
         )
 
         overlay.onDrillTapped()
         overlay.onDrillTapped()
         overlay.onInventoryTapped()
+        overlay.onExitVehicleTapped()
         XCTAssertEqual(drillTaps, 2)
         XCTAssertEqual(inventoryTaps, 1)
+        XCTAssertEqual(exitTaps, 1)
     }
 
     /// `hud.status.drilling` is present in the String Catalog.

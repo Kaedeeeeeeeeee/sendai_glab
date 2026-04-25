@@ -1,0 +1,43 @@
+{
+  "regionId": "tohoku-gakuin",
+  "nameKey": "geology.region.tohoku-gakuin.name",
+  "source": "Wikipedia 仙台層群 + 片平・土樋低地 地質資料 + 日本地質学会",
+  "confidence": "needs_geologist_review",
+  "layers": [
+    {
+      "id": "tohoku-gakuin.fill",
+      "nameKey": "geology.layer.fill.name",
+      "thickness": 1.5,
+      "colorHex": "#6B4C2F",
+      "lithology": "fill and topsoil"
+    },
+    {
+      "id": "tohoku-gakuin.alluvium",
+      "nameKey": "geology.layer.alluvium.name",
+      "thickness": 8.0,
+      "colorHex": "#5C4B3A",
+      "lithology": "alluvial clay silt and peat"
+    },
+    {
+      "id": "tohoku-gakuin.diluvial-gravel",
+      "nameKey": "geology.layer.diluvial-gravel.name",
+      "thickness": 4.0,
+      "colorHex": "#A89070",
+      "lithology": "diluvial gravel"
+    },
+    {
+      "id": "tohoku-gakuin.mukaiyama",
+      "nameKey": "geology.layer.mukaiyama.name",
+      "thickness": 15.0,
+      "colorHex": "#4A4A52",
+      "lithology": "mudstone with lignite and tuff"
+    },
+    {
+      "id": "tohoku-gakuin.basement",
+      "nameKey": "geology.layer.basement.name",
+      "thickness": 0.0,
+      "colorHex": "#2F2F35",
+      "lithology": "basement"
+    }
+  ]
+}

@@ -14,6 +14,29 @@
 #   - usdzconvert    (from Apple USDPython / Reality Converter tooling) - optional
 #
 # See INSTALL.md for how to install the prerequisites on macOS Apple Silicon.
+#
+# ----------------------------------------------------------------------------
+# Phase 11 — texture passthrough (why no CLI flag here)
+# ----------------------------------------------------------------------------
+# nusamai 0.1.x (plateau-gis-converter) reads <app:TextureFile> references
+# from the CityGML directly and auto-resolves the relative JPG paths
+# against the GML file's parent directory. There is **no** `--textures` /
+# `--appearance` CLI switch to toggle — the behaviour is purely
+# file-layout driven.
+#
+# What this means in practice: the GLB will carry textures **only if**
+# the tile's `{tile}_bldg_6697_appearance/` folder sits next to the GML
+# on disk before we invoke nusamai. Part A of Phase 11 makes this the
+# default: `extract_bldg_gmls.sh` now unpacks both the GML and the
+# appearance directory into `input/extracted/udx/bldg/`.
+#
+# If you bypass `extract_bldg_gmls.sh` and point `--input` at an
+# arbitrary GML without an adjacent `*_appearance/` folder, the GLB
+# comes out flat-shaded and downstream USDZs will have no texture
+# slots to downscale / repack. So: make sure Part A has run before
+# this script, or place the appearance directory next to the GML
+# manually.
+# ----------------------------------------------------------------------------
 
 set -euo pipefail
 
@@ -329,6 +352,23 @@ log_info "stage 1/3: nusamai -> $STAGE1_GLB"
 if [ ! -s "$STAGE1_GLB" ]; then
     log_error "nusamai produced no/empty output at $STAGE1_GLB"
     exit 1
+fi
+
+# Phase 11 breadcrumb: nusamai pastes texture JPG bytes into the GLB
+# binary-chunk when an appearance folder is found next to the GML.
+# A textured LOD2 bldg tile comes out >> raw geometry size. If the GLB
+# is suspiciously small we log a WARN so the user notices before
+# investing Blender cycles on a flat-shaded pipeline.
+INPUT_DIR="$(dirname "$INPUT")"
+INPUT_STEM="$(basename "$INPUT" .gml)"
+# The appearance folder convention nusamai follows.
+# Examples: `57403607_bldg_6697_op.gml` → `57403607_bldg_6697_appearance/`
+APP_DIR="${INPUT_DIR}/${INPUT_STEM%_op}_appearance"
+if [ -d "$APP_DIR" ]; then
+    log_info "appearance dir present: $APP_DIR"
+else
+    log_warn "no appearance dir at $APP_DIR — GLB will be flat-shaded"
+    log_warn "  run extract_bldg_gmls.sh first, or place the folder manually"
 fi
 log_ok "stage 1 done"
 

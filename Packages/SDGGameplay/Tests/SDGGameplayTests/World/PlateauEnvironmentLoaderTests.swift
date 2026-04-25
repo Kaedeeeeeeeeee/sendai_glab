@@ -55,18 +55,20 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
 
     // MARK: - Material replacement
 
-    /// Replacing materials on a lone `ModelEntity` must mutate its
-    /// `materials` array in place — not rebuild the entity, not
-    /// orphan the mesh. Pins the "we keep the mesh, swap the look"
-    /// contract.
-    func testApplyToonMaterialReplacesModelEntityMaterials() {
+    /// Mutating materials on a lone `ModelEntity` carrying untextured
+    /// slots must replace every slot with the hard-cel fallback — not
+    /// rebuild the entity, not orphan the mesh. Pins the "we keep the
+    /// mesh, swap the look" contract for the pre-Phase-11-C USDZ shape
+    /// (no baked textures) where the hybrid path degenerates to the
+    /// legacy replacement.
+    func testApplyHybridToonTintReplacesUntexturedModelEntityMaterials() {
         let mesh = MeshResource.generateBox(size: 1)
         let entity = ModelEntity(
             mesh: mesh,
             materials: [SimpleMaterial(), SimpleMaterial()]
         )
 
-        PlateauEnvironmentLoader.applyToonMaterial(
+        PlateauEnvironmentLoader.applyHybridToonTint(
             toDescendantsOf: entity,
             baseColor: SIMD3<Float>(0.8, 0.6, 0.4)
         )
@@ -77,10 +79,11 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
             model?.materials.count, 2,
             "material slot count must be preserved"
         )
-        // The new materials must be `PhysicallyBasedMaterial` (what
-        // `ToonMaterialFactory.makeLayerMaterial` returns today). If
-        // we swap to ShaderGraph, this test updates at the same time
-        // as the factory does.
+        // For untextured inputs the hybrid helper falls back to
+        // `ToonMaterialFactory.makeHardCelMaterial`, which today
+        // returns a `PhysicallyBasedMaterial` on the Scheme C fallback
+        // path. If we swap to ShaderGraph, this test updates at the
+        // same time as the factory does.
         XCTAssertTrue(
             model?.materials.first is PhysicallyBasedMaterial,
             "expected PBR material, got \(type(of: model?.materials.first as Any))"
@@ -91,7 +94,7 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
     /// not just the root. Nusamai's output is exactly this kind of
     /// nested tree (root Entity → per-mesh ModelEntity children),
     /// so if the walk stops at the root the tile stays grey.
-    func testApplyToonMaterialWalksChildren() {
+    func testApplyHybridToonTintWalksChildren() {
         let root = Entity()
         let mesh = MeshResource.generateBox(size: 1)
         let childA = ModelEntity(mesh: mesh, materials: [SimpleMaterial()])
@@ -101,7 +104,7 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
         root.addChild(childB)
         childA.addChild(grandchild)
 
-        PlateauEnvironmentLoader.applyToonMaterial(
+        PlateauEnvironmentLoader.applyHybridToonTint(
             toDescendantsOf: root,
             baseColor: SIMD3<Float>(0.8, 0.6, 0.4)
         )
@@ -118,19 +121,76 @@ final class PlateauEnvironmentLoaderTests: XCTestCase {
     /// Entities without `ModelComponent` must be skipped silently.
     /// PLATEAU tiles contain empty group entities for layout
     /// purposes; they must not crash the walker.
-    func testApplyToonMaterialSkipsEntitiesWithoutModelComponent() {
+    func testApplyHybridToonTintSkipsEntitiesWithoutModelComponent() {
         let root = Entity()
         let empty = Entity()
         root.addChild(empty)
 
         // No crash = pass. The function signature is non-throwing
         // and we just want the call to return.
-        PlateauEnvironmentLoader.applyToonMaterial(
+        PlateauEnvironmentLoader.applyHybridToonTint(
             toDescendantsOf: root,
             baseColor: .zero
         )
 
         XCTAssertNil(empty.components[ModelComponent.self])
+    }
+
+    // MARK: - Phase 11 Part D: hybrid branch selection
+
+    /// `hybridTintedMaterial(for:fallback:)` is the pure-function
+    /// branch predicate. Untextured `PhysicallyBasedMaterial` input →
+    /// fallback. Verifies that "PBR without a baseColor.texture" is
+    /// treated as "just a tinted material, replace it" — the correct
+    /// behaviour for Phase 6.1's pre-textured USDZs.
+    func testHybridTintedMaterialReturnsFallbackForUntexturedPBR() throws {
+        var pbr = PhysicallyBasedMaterial()
+        pbr.baseColor = .init(tint: .gray, texture: nil)
+        XCTAssertNil(pbr.baseColor.texture, "setup: fixture must be untextured")
+
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: SIMD3<Float>(0.1, 0.2, 0.3)
+        )
+        let result = PlateauEnvironmentLoader.hybridTintedMaterial(
+            for: pbr, fallback: fallback
+        )
+        // Untextured PBR must NOT go through the mutator; the caller
+        // receives the fallback straight back.
+        let resultPBR = try XCTUnwrap(result as? PhysicallyBasedMaterial)
+        XCTAssertNil(
+            resultPBR.baseColor.texture,
+            "fallback path must not smuggle a texture in"
+        )
+    }
+
+    /// `SimpleMaterial` input (the common shape for hand-built debug
+    /// meshes and untextured test fixtures) must also drop through to
+    /// the fallback — not crash, not be mutated.
+    func testHybridTintedMaterialReturnsFallbackForSimpleMaterial() {
+        let simple = SimpleMaterial()
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: SIMD3<Float>(0.5, 0.5, 0.5)
+        )
+        let result = PlateauEnvironmentLoader.hybridTintedMaterial(
+            for: simple, fallback: fallback
+        )
+        // Fallback is PBR (via ToonMaterialFactory's Scheme C-v2 path
+        // when no ShaderGraph is cached).
+        XCTAssertTrue(result is PhysicallyBasedMaterial)
+    }
+
+    /// `nil` input — represents a `ModelComponent` slot index that
+    /// has no material yet (rare, but the loop allocates slots by
+    /// count and tolerates missing values). Must return the fallback,
+    /// not trap.
+    func testHybridTintedMaterialReturnsFallbackForNilInput() {
+        let fallback = ToonMaterialFactory.makeHardCelMaterial(
+            baseColor: SIMD3<Float>(0.5, 0.5, 0.5)
+        )
+        let result = PlateauEnvironmentLoader.hybridTintedMaterial(
+            for: nil, fallback: fallback
+        )
+        XCTAssertTrue(result is PhysicallyBasedMaterial)
     }
 
     // MARK: - Envelope-manifest placement (Phase 4)

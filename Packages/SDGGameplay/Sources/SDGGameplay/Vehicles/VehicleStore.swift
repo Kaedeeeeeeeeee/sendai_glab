@@ -53,7 +53,7 @@ import SDGCore
 /// on the RealityKit entity. Consumers that need live position must
 /// read it from the scene; the snapshot only tracks "where was it
 /// born".
-public struct VehicleSnapshot: Sendable, Identifiable, Equatable {
+public struct VehicleSnapshot: Sendable, Identifiable, Equatable, Codable {
 
     /// Stable identity, matches `VehicleComponent.vehicleId`.
     public let id: UUID
@@ -148,6 +148,11 @@ public final class VehicleStore: Store {
 
     private let eventBus: EventBus
 
+    /// Storage backend for `summonedVehicles` + `occupiedVehicleId`.
+    /// Injected so tests can pass `.inMemory`; default is
+    /// `UserDefaults.standard` via `.standard`.
+    private let persistence: VehiclePersistence
+
     /// Weak map from `vehicleId` to the RealityKit entity that the
     /// scene-side subscriber created. Weak so the Store does not
     /// keep entities alive past scene teardown. `NSMapTable` was
@@ -157,8 +162,61 @@ public final class VehicleStore: Store {
 
     // MARK: - Init
 
-    public init(eventBus: EventBus) {
+    public init(
+        eventBus: EventBus,
+        persistence: VehiclePersistence = .standard
+    ) {
         self.eventBus = eventBus
+        self.persistence = persistence
+    }
+
+    // MARK: - Lifecycle
+
+    /// Rehydrate `summonedVehicles` + `occupiedVehicleId` from disk.
+    ///
+    /// Call once at app bootstrap (after DI wiring, before the first
+    /// UI frame). Persistence failures are swallowed — first launch
+    /// has no saved data and a corrupt blob is treated as "start with
+    /// no vehicles" rather than crashing gameplay.
+    ///
+    /// ### Entity re-materialisation
+    /// Loading snapshots restores the Store's *data* view only. The
+    /// scene-side `VehicleSummoned` subscriber (RootView) is the
+    /// party that builds RealityKit entities and calls
+    /// `register(entity:for:)`. `start()` republishes a
+    /// `VehicleSummoned` for every loaded snapshot so the scene-side
+    /// subscriber re-builds the entities on the existing path — no
+    /// bespoke rehydration code in RootView.
+    public func start() async {
+        guard let snapshot = try? persistence.load() else { return }
+        summonedVehicles = snapshot.summonedVehicles
+        // Only keep `occupiedVehicleId` if it's still in the roster
+        // — a corrupt blob with a dangling id would otherwise leave
+        // the HUD stuck on a phantom vehicle.
+        if let occupied = snapshot.occupiedVehicleId,
+           snapshot.summonedVehicles.contains(where: { $0.id == occupied }) {
+            occupiedVehicleId = occupied
+        }
+        // Republish summons so RootView's existing subscriber rebuilds
+        // the scene entities. We explicitly do NOT republish
+        // `VehicleEntered` here: camera re-parenting is a UX event,
+        // not a persistence concern, and resuming a piloted vehicle
+        // mid-flight is a gameplay decision out of scope for MVP.
+        for vehicle in summonedVehicles {
+            await eventBus.publish(
+                VehicleSummoned(
+                    vehicleId: vehicle.id,
+                    vehicleType: vehicle.type,
+                    position: vehicle.position
+                )
+            )
+        }
+    }
+
+    /// Hook for symmetry with other Stores. `VehicleStore` holds no
+    /// subscriptions of its own, so `stop()` is currently a no-op.
+    public func stop() async {
+        // No subscriptions; reserved for future teardown work.
     }
 
     // MARK: - Scene-side binding
@@ -178,6 +236,19 @@ public final class VehicleStore: Store {
     /// never registered. Intended for scene teardown.
     public func unregister(vehicleId: UUID) {
         entityRegistry.removeValue(forKey: vehicleId)
+    }
+
+    /// Look up the scene-side entity for a previously-registered
+    /// vehicle id. Returns `nil` if the id is unknown or the entity
+    /// has been deallocated (weak reference).
+    ///
+    /// Used by the Phase 7 UX layer (RootView) to:
+    /// * re-parent the camera onto the vehicle on `VehicleEntered`,
+    /// * read the vehicle's live world position for the Board / Exit
+    ///   HUD button's proximity check (snapshot positions go stale
+    ///   the moment the vehicle starts moving).
+    public func entity(for vehicleId: UUID) -> Entity? {
+        entityRegistry[vehicleId]?.entity
     }
 
     // MARK: - Store protocol
@@ -201,6 +272,7 @@ public final class VehicleStore: Store {
         let id = UUID()
         let snapshot = VehicleSnapshot(id: id, type: type, position: position)
         summonedVehicles.append(snapshot)
+        persistIgnoringFailure()
         await eventBus.publish(
             VehicleSummoned(vehicleId: id, vehicleType: type, position: position)
         )
@@ -220,6 +292,7 @@ public final class VehicleStore: Store {
         }
 
         occupiedVehicleId = vehicleId
+        persistIgnoringFailure()
 
         // Flip the component's `isOccupied` if the entity is bound
         // yet. If the scene hasn't registered the entity by the
@@ -243,6 +316,7 @@ public final class VehicleStore: Store {
     private func exitCurrent() async {
         guard let vehicleId = occupiedVehicleId else { return }
         occupiedVehicleId = nil
+        persistIgnoringFailure()
 
         // Clear the component state so a parked vehicle does not
         // keep integrating whatever the last joystick sample was.
@@ -279,10 +353,32 @@ public final class VehicleStore: Store {
     /// Reset to a fresh state. Test-only. `public` so cross-module
     /// tests can reach it; production owns the Store for the app's
     /// full lifetime.
+    ///
+    /// Also wipes persistence: otherwise the next `start()` would
+    /// rehydrate the pre-reset state and make the test flaky.
     public func resetForTesting() {
         summonedVehicles = []
         occupiedVehicleId = nil
         entityRegistry = [:]
+        try? persistence.save(.empty)
+    }
+
+    // MARK: - Persistence helper
+
+    /// Best-effort save of the current `summonedVehicles` +
+    /// `occupiedVehicleId`. Mirrors `InventoryStore.persistIgnoringFailure`:
+    /// losing a summon/enter/exit on disk is a minor inconvenience,
+    /// crashing mid-gameplay is not.
+    private func persistIgnoringFailure() {
+        let snapshot = VehiclePersistence.Snapshot(
+            summonedVehicles: summonedVehicles,
+            occupiedVehicleId: occupiedVehicleId
+        )
+        do {
+            try persistence.save(snapshot)
+        } catch {
+            // Intentionally swallowed. See doc comment above.
+        }
     }
 }
 

@@ -15,22 +15,35 @@ Pipeline
 --------
 1. Import the DEM USDZ — we'll sample it for per-building ground Y.
 2. Import the bldg GLB (one merged mesh, nusamai output).
-3. Strip materials (runtime reapplies Toon).
-4. Weld coincident verts at 1 mm so triangle soup becomes a real
+3. Weld coincident verts at 1 mm so triangle soup becomes a real
    manifold mesh (critical: without this step the next LOOSE split
    produces one component per triangle, not per building).
-5. `mesh.separate(type='LOOSE')` → each connected component becomes
+4. `mesh.separate(type='LOOSE')` → each connected component becomes
    its own mesh object ≈ one building.
-6. For each per-building object:
+5. For each per-building object:
    - Compute centroid in Blender coords.
    - Map centroid's Miyagi XY to DEM's Blender XY using the envelope
      centres from `plateau_envelopes.json`.
    - Raycast the DEM straight down, pick up the hit elevation.
    - Translate every vertex of the building by the needed Z delta
      so its centroid Z matches the DEM-derived target.
-7. Join all per-building meshes back into a single object.
-8. Delete the DEM object (we don't ship it from this tile).
-9. Export as USDZ — one top-level mesh, no multi-prim hierarchy.
+6. Join all per-building meshes back into a single object.
+7. Delete the DEM object (we don't ship it from this tile).
+8. Downscale every loaded texture image to 512×512 JPEG q=80
+   (see `downscale_textures_inline.py`). Runs after step 7 so the
+   DEM is gone and we only touch bldg materials.
+9. Export as USDZ — one top-level mesh, no multi-prim hierarchy,
+   materials + textures + UVs preserved.
+
+Phase 11 note
+-------------
+Earlier revisions of this script called `strip_all_materials()` and
+exported with `export_materials=False` because runtime reapplied a
+Toon material via `ToonMaterialFactory`. Phase 11 preserves PLATEAU
+appearance data (facade JPGs baked into the GLB by nusamai) so the
+runtime Toon pass can multiply-tint them rather than replace them.
+`strip_all_materials` is kept in the file for future opt-in but no
+longer called from `main()`.
 
 Coordinate mapping refresher
 ----------------------------
@@ -168,9 +181,14 @@ def import_dem_usdz(input_usdz: Path, tag_name: str) -> bpy.types.Object:
 
 
 def strip_all_materials() -> None:
-    """Drop every material slot on every mesh. The runtime reapplies
-    a per-tile Toon material via `ToonMaterialFactory`; keeping the
-    baked ones in the USDZ is pure bundle bloat.
+    """Drop every material slot on every mesh.
+
+    **Phase 11: not called from `main()`.** Kept as an opt-in helper
+    in case a future pipeline variant needs flat-shaded output (for
+    example a debug mode that isolates geometry issues from
+    material issues). Today the runtime multiplies PLATEAU facade
+    JPGs by the Toon tint rather than replacing them, so the bldg
+    USDZs must ship their appearance data.
     """
     for obj in bpy.data.objects:
         if obj.type != "MESH":
@@ -437,6 +455,12 @@ def export_usdz(output: Path) -> None:
     """Export the scene as USDZ with every mesh object becoming a
     child prim under `/root`. Mirrors `glb_to_usdz.py`'s kwargs so
     the runtime sees a consistent hierarchy across the two pipelines.
+
+    Phase 11: materials + textures + UVs are exported. The facade
+    JPGs have been downscaled + repacked to 512 px JPEG q=80
+    upstream in `downscale_textures_inline.downscale_all_images`,
+    so the resulting USDZ carries them inside its archive rather
+    than as external references.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     export_kwargs = {
@@ -446,9 +470,9 @@ def export_usdz(output: Path) -> None:
         "export_hair": False,
         "export_uvmaps": True,
         "export_normals": True,
-        # Materials are stripped; explicitly disable export so Blender
-        # doesn't reintroduce a default.
-        "export_materials": False,
+        # Phase 11: preserve PLATEAU appearance data end-to-end.
+        "export_materials": True,
+        "export_textures": True,
         "use_instancing": False,
         "evaluation_mode": "RENDER",
     }
@@ -461,6 +485,20 @@ def export_usdz(output: Path) -> None:
         raise RuntimeError(f"USD export returned non-finished status: {result}")
     if not output.is_file():
         raise RuntimeError(f"USD export reported success but no file at {output}")
+
+
+def _import_downscale_module(script_dir: Path) -> None:
+    """Make sure `downscale_textures_inline` is importable.
+
+    Blender invoked via `--python <path>` does NOT put `<path>`'s
+    directory on `sys.path`, so a bare `import` from a sibling .py
+    file fails with ModuleNotFoundError. Prepending explicitly fixes
+    it, and is a no-op on re-entry because sys.path entries are
+    de-duplicated in practice (we also guard with `not in`).
+    """
+    path_str = str(script_dir)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
 
 def main() -> int:
@@ -494,7 +532,11 @@ def main() -> int:
             if o.type == "MESH" and o.name not in existing
         ]
         before_count = len(bldg_meshes_initial)
-        strip_all_materials()
+        # Phase 11: DO NOT strip materials here. The PLATEAU facade
+        # JPGs nusamai baked into the GLB flow through split → merge
+        # → export so the USDZ ships with textured buildings.
+        # `strip_all_materials()` is still available for opt-in flat
+        # shaded debug variants — see the function's docstring.
 
         # `weld_and_split_loose` operates on every mesh in the scene;
         # temporarily hide the DEM so it stays untouched.
@@ -526,6 +568,16 @@ def main() -> int:
 
         # Ship only the merged bldg mesh, not the DEM.
         delete_object(dem_obj)
+
+        # Phase 11: downscale every loaded facade JPG to 512 px JPEG
+        # q=80 *before* export. Done last (after DEM delete, before
+        # USD write) so we only touch images that will ship — DEM
+        # materials (none today, but future-proof) don't get packed
+        # into the bldg USDZ.
+        _import_downscale_module(script_dir=Path(__file__).parent)
+        import downscale_textures_inline  # noqa: WPS433 — late bind
+        downscale_textures_inline.downscale_all_images()
+
         export_usdz(output_usdz)
     except Exception as exc:  # noqa: BLE001
         print(f"[FAIL] split+snap+merge: {exc}", file=sys.stderr)

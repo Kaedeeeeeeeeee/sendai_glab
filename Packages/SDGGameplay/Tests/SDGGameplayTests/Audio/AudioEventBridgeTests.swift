@@ -28,9 +28,13 @@ final class AudioEventBridgeTests: XCTestCase {
         var playedEffects: [AudioEffect] = []
 
         @discardableResult
-        override func play(_ effect: AudioEffect, volume: Float = 1.0) -> UUID? {
+        override func play(
+            _ effect: AudioEffect,
+            volume: Float = 1.0,
+            loops: Int = 0
+        ) -> UUID? {
             playedEffects.append(effect)
-            return super.play(effect, volume: volume)
+            return super.play(effect, volume: volume, loops: loops)
         }
     }
 

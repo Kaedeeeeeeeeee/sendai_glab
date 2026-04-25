@@ -65,6 +65,14 @@ final class POCSceneRefs {
     /// before the conversion pipeline has produced them.
     var environmentRoot: Entity?
 
+    /// Phase 7.1 + Phase 9 Part B: cached terrain entity shared by
+    /// two consumers:
+    ///   * vehicle-exit handler for DEM raycast (safe landing Y)
+    ///   * `DrillingOrchestrator.terrainSampler` for drill-point
+    ///     surface elevation
+    /// Set in the RealityView make closure after `terrainLoader.load()`.
+    var loadedTerrain: Entity?
+
     init() {}
 }
 
@@ -108,6 +116,11 @@ public struct RootView: View {
     /// Latest joystick output. Mirrored into `PlayerControlStore` via
     /// `.onChange` so the joystick view stays decoupled from Stores.
     @State private var joystickAxis: SIMD2<Float> = .zero
+
+    /// Phase 7.1: vertical stick output for piloting drones. Mirrored
+    /// into `VehicleStore.pilot(vertical:)` via `.onChange`. Hidden
+    /// while the player is on foot; see HUDOverlay's visibility gate.
+    @State private var verticalSliderValue: Float = 0
 
     /// Frame-to-frame look baseline so we emit deltas instead of a
     /// growing absolute. Reset on gesture end.
@@ -169,6 +182,51 @@ public struct RootView: View {
     /// `VehicleSummoned` so it can spawn the matching scene Entity.
     @State private var vehicleStore: VehicleStore
 
+    /// Phase 8: earthquake / flood state machine. Triggered from
+    /// the 🌋 / 💧 debug buttons for MVP; quest-driven trigger is
+    /// Phase 8.1 work (see ADR-0010).
+    @State private var disasterStore: DisasterStore
+
+    /// Phase 8: bridges `EarthquakeStarted` / `FloodStarted` to
+    /// the platform `AudioService`. Started in `bootstrap()`.
+    @State private var disasterAudioBridge: DisasterAudioBridge?
+
+    /// Phase 10: bridges `AppSessionStarted` / `UserSignedIn` to
+    /// `TelemetryWriting.logSession`. Started in `bootstrap()` iff
+    /// an `AuthStore` is injected via `\.authStore` (production path;
+    /// previews render without it). See ADR-0011.
+    @State private var sessionLogBridge: SessionLogBridge?
+
+    /// Phase 10: the AuthStore handed in by `ContentView`. Read via
+    /// `@Environment` so `RootView` has no init-surface change. `nil`
+    /// in previews / unit tests — the bridge skips start in that case.
+    @Environment(\.authStore) private var injectedAuthStore: AuthStore?
+
+    /// Phase 9 Part B: story-driven quest + disaster routing.
+    /// Replaces the Phase 3 ad-hoc dialogue→quest subscription.
+    @State private var storyProgressionBridge: StoryProgressionBridge?
+
+    /// Phase 9 Part F: scene transition state machine (outdoor ↔ indoor).
+    @State private var sceneTransitionStore: SceneTransitionStore
+
+    /// Phase 9 Part F: retained portal entities for the per-tick proximity snapshot.
+    @State private var outdoorPortalEntity: Entity?
+    @State private var indoorPortalEntity: Entity?
+
+    /// Phase 9 Part F: the lab interior — lives in the scene graph always; isEnabled flips.
+    @State private var labInteriorEntity: Entity?
+
+    /// Phase 9 Part F: subscription token for SceneTransitionStarted.
+    @State private var sceneTransitionStartedToken: SubscriptionToken?
+
+    /// Phase 9 Part G: accumulated camera pitch while piloting a
+    /// vehicle. The player's on-foot pitch lives in
+    /// `PlayerControlSystem.accumulatedPitch`, but that System skips
+    /// the player entity while piloting (isEnabled = false), so we
+    /// need an independent buffer for pilot-mode pitch. Clamped to
+    /// ±80° same as the on-foot version. Resets to 0 on exit.
+    @State private var pilotCameraPitch: Float = 0
+
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
 
@@ -177,10 +235,32 @@ public struct RootView: View {
     @State private var vehicleSummonedToken: SubscriptionToken?
     @State private var dialogueFinishedToken: SubscriptionToken?
 
-    /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
-    /// device width on iPad landscape; a 1000-pt drag rotating by one
-    /// radian (≈57°) feels right on first play.
-    private let lookSensitivity: Float = 1.0 / 1000.0
+    /// Phase 7: Vehicle enter/exit tokens. Retained so `teardown()`
+    /// can cancel them; the bridge from events → scene graph mutation
+    /// (camera re-parent) lives in `bootstrap()`.
+    @State private var vehicleEnteredToken: SubscriptionToken?
+    @State private var vehicleExitedToken: SubscriptionToken?
+
+    /// Phase 7: player world position polled at 10 Hz (see
+    /// `playerPositionPoll`). Feeds the HUD's Board button proximity
+    /// check. Updating at every RealityKit frame would churn SwiftUI
+    /// more than needed; 100 ms is plenty for a "walk up to the
+    /// drone and tap Board" affordance.
+    @State private var polledPlayerPosition: SIMD3<Float> = .zero
+
+    /// Publisher that fires every 100 ms while the view is on-screen.
+    /// Used to refresh `polledPlayerPosition`. A Combine `.autoconnect`
+    /// keeps the timer running without manual start/stop bookkeeping.
+    private let playerPositionPoll = Timer.publish(
+        every: 0.1, on: .main, in: .common
+    ).autoconnect()
+
+    /// Look sensitivity: screen-space points per radian.
+    /// Phase 9 Part G: 1/1000 → 1/500 after device feedback — the
+    /// original rate felt sluggish. 1/500 means a full-device-width
+    /// drag rotates ~2.5 rad (≈115°), which matches the "flick to
+    /// look around" feel typical iOS camera controls use.
+    private let lookSensitivity: Float = 1.0 / 500.0
 
     /// Default public initializer. Allocates placeholder stores tied to
     /// an empty bus; `.task` re-binds them to the real env bus on first
@@ -195,6 +275,8 @@ public struct RootView: View {
         _dialogueStore = State(initialValue: DialogueStore(eventBus: placeholder))
         _workbenchStore = State(initialValue: WorkbenchStore(eventBus: placeholder))
         _vehicleStore = State(initialValue: VehicleStore(eventBus: placeholder))
+        _disasterStore = State(initialValue: DisasterStore(eventBus: placeholder))
+        _sceneTransitionStore = State(initialValue: SceneTransitionStore(eventBus: placeholder))
     }
 
     public var body: some View {
@@ -204,9 +286,14 @@ public struct RootView: View {
                 playerStore: playerStore,
                 drillingStore: drillingStore,
                 inventoryStore: inventoryStore,
+                vehicleStore: vehicleStore,
                 joystickAxis: $joystickAxis,
+                verticalSliderValue: $verticalSliderValue,
+                playerWorldPosition: polledPlayerPosition,
                 onDrillTapped: handleDrillTap,
-                onInventoryTapped: { showInventory = true }
+                onInventoryTapped: { showInventory = true },
+                onBoardTapped: handleBoardTap,
+                onExitVehicleTapped: handleExitVehicleTap
             )
 
             // Phase 2 Beta debug actions: opens workbench, summons a
@@ -215,7 +302,9 @@ public struct RootView: View {
             DebugActionsBar(
                 onWorkbenchTapped: handleWorkbenchTap,
                 onDroneTapped: handleDroneSummonTap,
-                onStoryTapped: handleStoryStartTap
+                onStoryTapped: handleStoryStartTap,
+                onEarthquakeTapped: handleEarthquakeTap,
+                onFloodTapped: handleFloodTap
             )
 
             // Top-left tracker showing the active quest.
@@ -269,10 +358,68 @@ public struct RootView: View {
         #endif
         .task { await bootstrap() }
         .onDisappear { teardown() }
-        .onChange(of: joystickAxis) { _, new in
-            let store = playerStore
+        .onReceive(playerPositionPoll) { _ in
+            if let body = sceneRefs.playerEntity {
+                polledPlayerPosition = body.position(relativeTo: nil)
+            }
+            // Phase 9 Part F: portal proximity tick.
+            var snapshots: [PortalProximitySnapshot] = []
+            if let outdoor = outdoorPortalEntity,
+               let comp = outdoor.components[LocationTransitionComponent.self] {
+                snapshots.append(PortalProximitySnapshot(
+                    position: outdoor.position(relativeTo: nil),
+                    transition: comp
+                ))
+            }
+            if let indoor = indoorPortalEntity,
+               let comp = indoor.components[LocationTransitionComponent.self] {
+                snapshots.append(PortalProximitySnapshot(
+                    position: indoor.position(relativeTo: nil),
+                    transition: comp
+                ))
+            }
+            let store = sceneTransitionStore
+            let player = polledPlayerPosition
             Task { @MainActor in
-                await store.intent(.move(new))
+                await store.intent(.tickProximity(
+                    playerPosition: player,
+                    portals: snapshots
+                ))
+            }
+        }
+        .onChange(of: joystickAxis) { _, new in
+            // Phase 7 joystick routing: the same on-screen stick drives
+            // either the player or the occupied vehicle depending on
+            // `vehicleStore.occupiedVehicleId`. The HUD joystick View stays
+            // ignorant of which Store consumes its output — the swap lives
+            // here in RootView so the AGENTS.md §1 View→Store→ECS boundary
+            // holds (the View knows nothing about Stores; RootView picks
+            // the recipient).
+            //
+            // Phase 7.1: the vertical axis now comes from the dedicated
+            // `verticalSliderValue` binding instead of a hardcoded 0.
+            let playerStore = self.playerStore
+            let vehicleStore = self.vehicleStore
+            let vertical = verticalSliderValue
+            Task { @MainActor in
+                if vehicleStore.occupiedVehicleId != nil {
+                    await vehicleStore.intent(.pilot(axis: new, vertical: vertical))
+                } else {
+                    await playerStore.intent(.move(new))
+                }
+            }
+        }
+        .onChange(of: verticalSliderValue) { _, newVertical in
+            // Phase 7.1 sibling to the joystick routing: vertical-only
+            // updates still need to re-publish the full pilot intent
+            // (axis + vertical) because `.pilot` overwrites both fields
+            // every call — a lonely axis update would otherwise zero
+            // out the vertical and vice-versa.
+            let vehicleStore = self.vehicleStore
+            let axis = joystickAxis
+            Task { @MainActor in
+                guard vehicleStore.occupiedVehicleId != nil else { return }
+                await vehicleStore.intent(.pilot(axis: axis, vertical: newVertical))
             }
         }
     }
@@ -338,6 +485,11 @@ public struct RootView: View {
                 let terrain = try await terrainLoader.load()
                 content.add(terrain)
                 loadedTerrain = terrain
+                // Phase 7.1 + Phase 9 Part B: cache the terrain so
+                // the vehicle-exit handler can DEM-raycast for a
+                // safe landing Y AND `DrillingOrchestrator.terrainSampler`
+                // can look up surface elevation at each drill XZ.
+                sceneRefs.loadedTerrain = terrain
             } catch {
                 print("[SDG-Lab][p4] TerrainLoader failed, using flat fallback plane: \(error)")
                 content.add(fallbackGround)
@@ -364,6 +516,17 @@ public struct RootView: View {
                 )
                 content.add(corridor)
                 sceneRefs.environmentRoot = corridor
+
+                // Phase 8: tag every corridor tile so DisasterSystem's
+                // `DisasterShakeTargetComponent` query picks them up.
+                // Done here (not in bootstrap) because the corridor
+                // loads inside this async closure — bootstrap's own
+                // tagging loop runs in parallel and typically races
+                // the 5-USDZ load, seeing `environmentRoot == nil`.
+                for tile in corridor.children {
+                    tile.components.set(DisasterShakeTargetComponent())
+                }
+                print("[SDG-Lab][p8] tagged \(corridor.children.count) corridor tile(s) with DisasterShakeTargetComponent")
             } catch {
                 print("[SDG-Lab] PlateauEnvironmentLoader failed: \(error)")
             }
@@ -447,6 +610,47 @@ public struct RootView: View {
             samples.name = "SampleContainer"
             content.add(samples)
             sceneRefs.sampleContainer = samples
+
+            // 6. Phase 9 Part F — interior lab + outdoor portal pair.
+            // Outdoor exit lands the player 3 m NORTH of the portal
+            // (portal sits at z = -5; exit at z = -2). `SceneTransitionStore
+            // .triggerRadius` is 2 m, so 3 m leaves a 1 m buffer
+            // before the next proximity tick re-triggers the portal —
+            // otherwise the player pops out and is immediately sucked
+            // back in. The previous offset (-5 + 1.5 = -3.5) placed
+            // them 1.5 m from the portal, well inside the trigger
+            // radius, which manifested as "exit instantly re-enters".
+            let lab = InteriorSceneBuilder.build(
+                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 3.0)
+            )
+            lab.position = SIMD3<Float>(0, 0, 0)
+            lab.isEnabled = false
+            content.add(lab)
+            labInteriorEntity = lab
+
+            let outdoorPortalXZ = SIMD2<Float>(0, -5)
+            let outdoorPortalY: Float = {
+                if let terrain = loadedTerrain,
+                   let y = TerrainLoader.sampleTerrainY(
+                       in: terrain, atWorldXZ: outdoorPortalXZ
+                   ) {
+                    return y
+                }
+                return 0
+            }()
+            let outdoorPortal = PortalEntity.makeOutdoorPortal(
+                at: SIMD3<Float>(outdoorPortalXZ.x, outdoorPortalY, outdoorPortalXZ.y),
+                targetScene: .indoor(sceneId: InteriorSceneBuilder.defaultSceneId),
+                spawnPointInTarget: InteriorSceneBuilder.defaultIndoorSpawnPoint
+            )
+            content.add(outdoorPortal)
+            outdoorPortalEntity = outdoorPortal
+
+            indoorPortalEntity = lab.children.first {
+                $0.name == "LabInterior.indoorPortalMarker"
+            }
+
+            body.components.set(LocationComponent(.outdoor))
         }
         .gesture(lookGesture)
     }
@@ -507,6 +711,92 @@ public struct RootView: View {
         }
     }
 
+    /// ⬆️ Board button tapped. The HUD has already resolved which
+    /// vehicle is nearest; we just forward the id to the Store. The
+    /// actual camera re-parent + player hide runs out of the
+    /// `VehicleEntered` subscriber in `bootstrap()` so the same
+    /// behaviour fires whether boarding comes from the HUD button,
+    /// a future scripted event, or a network multiplayer peer.
+    private func handleBoardTap(_ vehicleId: UUID) {
+        let store = vehicleStore
+        Task { @MainActor in
+            await store.intent(.enter(vehicleId: vehicleId))
+        }
+    }
+
+    /// ⬇️ Exit button tapped. Symmetric with `handleBoardTap`; the
+    /// `VehicleExited` subscriber does the scene graph work.
+    private func handleExitVehicleTap() {
+        let store = vehicleStore
+        Task { @MainActor in
+            await store.intent(.exit)
+        }
+    }
+
+    /// Phase 9 Part F — subscriber to SceneTransitionStarted.
+    @MainActor
+    private func handleSceneTransition(_ event: SceneTransitionStarted) async {
+        guard
+            let player = sceneRefs.playerEntity,
+            let lab = labInteriorEntity
+        else { return }
+        // Phase 9 Part F+G: the lab lives at world origin so the
+        // existing `indoorFloorY = 0` short-circuit in
+        // `PlayerControlSystem.snapToGround` works without any
+        // lab-local↔world conversion. But the DEM terrain + PLATEAU
+        // corridor also live at world origin and visibly punch
+        // through the lab walls when both are rendered. So on
+        // transition we flip both outdoor scenes off (or back on)
+        // together with the lab. The outdoor portal frame stays
+        // visible inside the lab room but the player can't see it
+        // from inside — it's outside the 10 × 4 × 8 m box.
+        switch event.to {
+        case .outdoor:
+            lab.isEnabled = false
+            sceneRefs.loadedTerrain?.isEnabled = true
+            sceneRefs.environmentRoot?.isEnabled = true
+        case .indoor:
+            lab.isEnabled = true
+            sceneRefs.loadedTerrain?.isEnabled = false
+            sceneRefs.environmentRoot?.isEnabled = false
+        }
+        player.position = event.spawnPoint
+        player.components.set(LocationComponent(event.to))
+    }
+
+    /// 🌋 Phase 8 earthquake debug button. Fires a 2-second shake
+    /// at intensity 0.7 via the Disaster store. `DisasterSystem`
+    /// picks this up next frame.
+    private func handleEarthquakeTap() {
+        let store = disasterStore
+        Task { @MainActor in
+            await store.intent(.triggerEarthquake(
+                intensity: 0.7,
+                durationSeconds: 2.0,
+                questId: nil
+            ))
+        }
+    }
+
+    /// 💧 Phase 8 flood debug button. Rises to `playerY + 2 m` over
+    /// 5 s. The start-Y matches the player's current Y so the flood
+    /// reads as "water rising from where you're standing"; the
+    /// target gives 2 m of visible submersion without filling the
+    /// whole level.
+    private func handleFloodTap() {
+        guard let player = sceneRefs.playerEntity else { return }
+        let playerY = player.position(relativeTo: nil).y
+        let store = disasterStore
+        Task { @MainActor in
+            await store.intent(.triggerFlood(
+                startY: playerY,
+                targetWaterY: playerY + 2,
+                riseSeconds: 5.0,
+                questId: nil
+            ))
+        }
+    }
+
     /// 📖 button → load the chapter-1 intro and have the dialogue
     /// store play it. Phase 3 will trigger this automatically from
     /// quest state instead of a manual button.
@@ -544,6 +834,107 @@ public struct RootView: View {
         vehicleStore.register(entity: entity, for: event.vehicleId)
     }
 
+    /// Subscriber for `VehicleEntered` — re-parent the camera onto
+    /// the vehicle so the player sees from the pilot seat. Hides
+    /// the character body so the mesh doesn't clip through the
+    /// cockpit / get carried awkwardly.
+    ///
+    /// MVP camera rig: 1 m above vehicle origin, 2 m behind (local
+    /// +Z is the drone's "forward"; -Z puts the camera behind).
+    /// Doesn't try to be clever — just a static offset. Phase 7.1
+    /// will add a proper follow cam if playtest demands.
+    @MainActor
+    private func handleVehicleEntered(_ event: VehicleEntered) {
+        guard
+            let playerBody = sceneRefs.playerEntity,
+            let camera = findPerspectiveCamera(under: playerBody),
+            let vehicleEntity = vehicleStore.entity(for: event.vehicleId)
+        else {
+            print("[SDG-Lab][p7] VehicleEntered: camera or vehicle missing; " +
+                  "skipping re-parent")
+            return
+        }
+        camera.removeFromParent()
+        vehicleEntity.addChild(camera)
+        // Phase 7.1: initial pose. `VehicleFollowCamSystem` eases
+        // this toward `VehicleFollowCamComponent.targetOffset` each
+        // frame so the camera doesn't rigidly snap on fast yaw.
+        camera.transform.translation = SIMD3<Float>(0, 1.0, -2.0)
+        vehicleEntity.components.set(VehicleFollowCamComponent())
+        // Disable AFTER camera detach; `isEnabled = false` propagates
+        // to descendants, so a still-parented camera would go dark.
+        playerBody.isEnabled = false
+    }
+
+    /// Symmetric counterpart to `handleVehicleEntered`: camera
+    /// returns to the player, character re-enables, and the body
+    /// is teleported under the vehicle so the player doesn't pop
+    /// back to where they boarded (common annoyance on first
+    /// prototypes of board/exit UX).
+    @MainActor
+    private func handleVehicleExited(_ event: VehicleExited) {
+        guard let playerBody = sceneRefs.playerEntity else { return }
+        // Camera may be under the vehicle or back on the player
+        // depending on timing / duplicate events; search globally.
+        let camera =
+            findPerspectiveCamera(under: playerBody)
+            ?? (vehicleStore.entity(for: event.vehicleId).flatMap { veh in
+                findPerspectiveCamera(under: veh)
+            })
+        if let camera {
+            camera.removeFromParent()
+            playerBody.addChild(camera)
+            // Back to head height — matches CharacterLoader default.
+            camera.transform.translation = SIMD3<Float>(0, 1.5, 0)
+            // Phase 9 Part G: reset the camera's pitch on exit so the
+            // drone's last look angle doesn't carry into the on-foot
+            // view. PlayerControlSystem owns its own pitch accumulator
+            // for on-foot control and will re-drive this.
+            camera.orientation = simd_quatf()
+        }
+        // Phase 9 Part G: reset the pilot pitch buffer so a future
+        // board starts at a neutral (horizon-level) angle.
+        pilotCameraPitch = 0
+        playerBody.isEnabled = true
+        if let vehicleEntity = vehicleStore.entity(for: event.vehicleId) {
+            // Phase 7.1: clean up the follow-cam marker so a future
+            // board on a different vehicle doesn't inherit stale state.
+            vehicleEntity.components.remove(VehicleFollowCamComponent.self)
+
+            let vehiclePos = vehicleEntity.position(relativeTo: nil)
+            let vehicleXZ = SIMD2<Float>(vehiclePos.x, vehiclePos.z)
+            // Phase 7.1: DEM raycast for a safe landing Y. Drone may
+            // be hovering at 30 m; without this the player pops into
+            // thin air and falls. Falls back to "0.5 m below vehicle"
+            // when the drone has flown off the shipped DEM footprint.
+            let landingY: Float
+            if let terrain = sceneRefs.loadedTerrain,
+               let surfaceY = TerrainLoader.sampleTerrainY(
+                   in: terrain, atWorldXZ: vehicleXZ
+               ) {
+                landingY = surfaceY + 0.1
+            } else {
+                landingY = vehiclePos.y - 0.5
+            }
+            playerBody.position = SIMD3<Float>(
+                vehiclePos.x, landingY, vehiclePos.z
+            )
+        }
+    }
+
+    /// Iterative DFS that returns the first `PerspectiveCamera`
+    /// descendant of `root`. Camera is unnamed in both the Meshy
+    /// character and the capsule fallback, so we match by type.
+    @MainActor
+    private func findPerspectiveCamera(under root: Entity) -> Entity? {
+        var stack: [Entity] = [root]
+        while let current = stack.popLast() {
+            if current is PerspectiveCamera { return current }
+            stack.append(contentsOf: current.children)
+        }
+        return nil
+    }
+
     // MARK: - Bootstrap
 
     /// Runs once on first `.task`. Swaps the placeholder stores for
@@ -568,12 +959,36 @@ public struct RootView: View {
         await drillingStore.start()
         await inventoryStore.start()
 
+        // Phase 9 Part B: load the 5-tile regional stratigraphic
+        // column database. Missing-bundle path is a soft fallback
+        // to the legacy entity-tree drilling (test outcrop only).
+        let regionRegistry: GeologyRegionRegistry?
+        do {
+            regionRegistry = try GeologyRegionRegistry(
+                bundle: .main,
+                manifest: envelopeManifest
+            )
+            print("[SDG-Lab][p9-b] GeologyRegionRegistry loaded")
+        } catch {
+            print("[SDG-Lab][p9-b] GeologyRegionRegistry load failed: \(error)")
+            regionRegistry = nil
+        }
+
         // Orchestrator reads outcropRoot via closure so it sees the
-        // latest reference even if the scene is rebuilt later.
+        // latest reference even if the scene is rebuilt later. Phase
+        // 9 Part B also injects the region registry + terrain sampler
+        // so drilling anywhere in the corridor produces a real sample.
         let refs = sceneRefs
         let orch = DrillingOrchestrator(
             eventBus: bus,
-            outcropRootProvider: { refs.outcropRoot }
+            outcropRootProvider: { refs.outcropRoot },
+            regionRegistry: regionRegistry,
+            terrainSampler: { xz in
+                guard let terrain = refs.loadedTerrain else { return nil }
+                return TerrainLoader.sampleTerrainY(
+                    in: terrain, atWorldXZ: xz
+                )
+            }
         )
         await orch.start()
         orchestrator = orch
@@ -598,6 +1013,61 @@ public struct RootView: View {
         workbenchStore = WorkbenchStore(eventBus: bus)
         vehicleStore = VehicleStore(eventBus: bus)
         await questStore.start()
+        // Phase 9 Part E: hydrate vehicle snapshots from disk so a
+        // drone summoned in a previous session re-materialises in
+        // the scene via `VehicleSummoned` republish.
+        await vehicleStore.start()
+
+        // Phase 8: Disaster store + audio bridge. Rebind on the real
+        // bus; bind the System to the fresh Store so
+        // `DisasterSystem.update` sees today's state (and is safe to
+        // unbind in teardown). Tag every PLATEAU corridor tile with
+        // `DisasterShakeTargetComponent` so the earthquake System's
+        // query picks them up.
+        disasterStore = DisasterStore(eventBus: bus)
+        // Phase 9 Part E: hydrate disaster state + triggered-quest
+        // set so a reload mid-quake doesn't lose progress and a
+        // quest-driven disaster doesn't re-fire on cold boot.
+        await disasterStore.start()
+        DisasterSystem.boundStore = disasterStore
+
+        // Phase 9 Part F: rebind scene transition store + subscriber.
+        sceneTransitionStore = SceneTransitionStore(eventBus: bus)
+        sceneTransitionStartedToken = await bus.subscribe(
+            SceneTransitionStarted.self
+        ) { event in
+            await handleSceneTransition(event)
+        }
+        let dBridge = DisasterAudioBridge(
+            eventBus: bus,
+            audioService: audioService
+        )
+        await dBridge.start()
+        disasterAudioBridge = dBridge
+
+        // Phase 10 Supabase POC: session telemetry. Skipped when
+        // `authStore` isn't injected (previews / unit-test host).
+        if let authStore = injectedAuthStore {
+            let sBridge = SessionLogBridge(
+                eventBus: bus,
+                authStore: authStore,
+                telemetry: env.telemetry
+            )
+            await sBridge.start()
+            sessionLogBridge = sBridge
+        }
+
+        // Safety net: also tag tiles here in case bootstrap finished
+        // before the RealityView's async corridor load. The primary
+        // tagging site is inside the RealityView make closure right
+        // after `sceneRefs.environmentRoot = corridor`; this block
+        // covers the "store rebind after a scene reload" edge case.
+        // `components.set` is idempotent so re-tagging does no harm.
+        if let corridor = sceneRefs.environmentRoot {
+            for tile in corridor.children {
+                tile.components.set(DisasterShakeTargetComponent())
+            }
+        }
 
         // Subscribe to VehicleSummoned so we materialise the scene
         // entity. The Store only knows snapshots; we own the meshes.
@@ -605,19 +1075,42 @@ public struct RootView: View {
             await handleVehicleSummoned(event)
         }
 
-        // When the chapter intro dialogue finishes, kick off the
-        // first quest so the QuestTracker becomes visible. Phase 3
-        // will replace this with a proper QuestCoordinator that
-        // chains all 13 quests.
-        dialogueFinishedToken = await bus.subscribe(DialogueFinished.self) { event in
-            // Only the chapter-1 intro should trigger the auto-start;
-            // ignore any other dialogue (e.g. mid-game NPC banter).
-            guard event.sequenceId == "quest1.1" else { return }
-            let store = questStore
-            Task { @MainActor in
-                await store.intent(.start(questId: "q.lab.intro"))
-            }
+        // Phase 7: camera re-parent on board / disembark. Kept in
+        // the RootView because it's scene-graph mutation (which the
+        // Store must not touch); the Store has already flipped
+        // `occupiedVehicleId` by the time we run, so the joystick
+        // routing in `.onChange(of: joystickAxis)` is already aimed
+        // at the right Store.
+        vehicleEnteredToken = await bus.subscribe(VehicleEntered.self) { event in
+            await handleVehicleEntered(event)
         }
+        vehicleExitedToken = await bus.subscribe(VehicleExited.self) { event in
+            await handleVehicleExited(event)
+        }
+
+        // Phase 9 Part B: StoryProgressionBridge replaces the ad-hoc
+        // dialogue→quest subscription. It also wires quest completion
+        // to disaster triggers via the `StoryProgressionMap`. The
+        // bridge is @MainActor and takes a player-Y provider for the
+        // flood's startY — scene-graph access stays out of the Store.
+        let progressionBridge = StoryProgressionBridge(
+            eventBus: bus,
+            questStore: questStore,
+            disasterStore: disasterStore,
+            playerYProvider: {
+                // `refs` captured from the outer scope (local alias for
+                // `sceneRefs`). Strong reference is fine — POCSceneRefs
+                // is a tiny wrapper class.
+                refs.playerEntity?.position(relativeTo: nil).y ?? 0
+            }
+        )
+        await progressionBridge.start()
+        storyProgressionBridge = progressionBridge
+
+        // Bootstrap kick-off: start the chapter-1 intro quest so the
+        // QuestTracker becomes visible. Idempotent; the bridge takes
+        // over after the first DialogueFinished lands.
+        await questStore.intent(.start(questId: "q.lab.intro"))
 
         // Developer-facing debug: log every move intent. Real HUD
         // subscribers land in Phase 2.
@@ -698,14 +1191,29 @@ public struct RootView: View {
             Task { await bus.cancel(token) }
             vehicleSummonedToken = nil
         }
+        if let token = vehicleEnteredToken {
+            Task { await bus.cancel(token) }
+            vehicleEnteredToken = nil
+        }
+        if let token = vehicleExitedToken {
+            Task { await bus.cancel(token) }
+            vehicleExitedToken = nil
+        }
         if let token = dialogueFinishedToken {
             Task { await bus.cancel(token) }
             dialogueFinishedToken = nil
+        }
+        if let token = sceneTransitionStartedToken {
+            Task { await bus.cancel(token) }
+            sceneTransitionStartedToken = nil
         }
         let ds = drillingStore
         let inv = inventoryStore
         let orch = orchestrator
         let bridge = audioBridge
+        let dBridge = disasterAudioBridge
+        let pBridge = storyProgressionBridge
+        let sBridge = sessionLogBridge
         let qs = questStore
         Task {
             await ds.stop()
@@ -713,8 +1221,18 @@ public struct RootView: View {
             await qs.stop()
             if let orch { await orch.stop() }
             if let bridge { await bridge.stop() }
+            if let dBridge { await dBridge.stop() }
+            if let pBridge { await pBridge.stop() }
+            if let sBridge { await sBridge.stop() }
         }
         audioBridge = nil
+        disasterAudioBridge = nil
+        storyProgressionBridge = nil
+        sessionLogBridge = nil
+        // Clear the Phase 8 System binding so a subsequent view
+        // creation re-binds to the fresh store rather than the
+        // stale one from the previous scene.
+        DisasterSystem.boundStore = nil
         audioService.stopAll()
         playerStore.detach()
     }
@@ -722,7 +1240,25 @@ public struct RootView: View {
     // MARK: - Look gesture
 
     /// Right-half-screen `DragGesture`: translates raw point deltas
-    /// into radian look-intents and forwards them to the Store.
+    /// into radian look-intents.
+    ///
+    /// ## Routing
+    ///
+    /// - **On foot** (no occupied vehicle): forwards yaw + pitch to
+    ///   `playerStore.intent(.look)`. PlayerControlSystem rotates
+    ///   the player body on yaw and the head-height camera on pitch.
+    ///
+    /// - **Piloting** (Phase 9 Part G): PlayerControlSystem is gated
+    ///   out (player.isEnabled = false), so we mutate the drone and
+    ///   its reparented camera directly:
+    ///   * yaw rotates the vehicle entity around world +Y — the
+    ///     camera is a child so it follows, and the drone's "forward"
+    ///     vector (used by `VehicleControlSystem` for moveAxis) turns
+    ///     with it
+    ///   * pitch rotates the camera around local X — tracked in
+    ///     `pilotCameraPitch` so repeated drags compose cleanly, and
+    ///     clamped to the same ±80° as on-foot pitch so the camera
+    ///     can't flip past vertical
     private var lookGesture: some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
@@ -736,12 +1272,35 @@ public struct RootView: View {
                 let yaw = Float(dx) * lookSensitivity
                 let pitch = Float(-dy) * lookSensitivity
 
-                let store = playerStore
                 let bus = env.eventBus
+                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
+
+                // Piloting a vehicle → yaw on drone, pitch on camera.
+                if let vehicleId = vehicleStore.occupiedVehicleId,
+                   let vehicle = vehicleStore.entity(for: vehicleId) {
+                    if yaw != 0 {
+                        let yawQuat = simd_quatf(
+                            angle: -yaw, axis: SIMD3<Float>(0, 1, 0)
+                        )
+                        vehicle.orientation = vehicle.orientation * yawQuat
+                    }
+                    if pitch != 0, let camera = findPerspectiveCamera(under: vehicle) {
+                        let pitchLimit: Float = .pi / 180 * 80
+                        pilotCameraPitch = simd_clamp(
+                            pilotCameraPitch + pitch, -pitchLimit, pitchLimit
+                        )
+                        camera.orientation = simd_quatf(
+                            angle: pilotCameraPitch, axis: SIMD3<Float>(1, 0, 0)
+                        )
+                    }
+                    return
+                }
+
+                // On foot → existing Store path.
+                let store = playerStore
                 Task { @MainActor in
                     await store.intent(.look(SIMD2(yaw, pitch)))
                 }
-                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
             }
             .onEnded { _ in
                 lastLookTranslation = .zero
@@ -758,6 +1317,33 @@ public struct RootView: View {
         PlayerComponent.registerComponent()
         PlayerInputComponent.registerComponent()
         PlayerControlSystem.registerSystem()
+        // Phase 8: Disaster components + System. DisasterSystem's
+        // Store binding happens after bootstrap constructs the Store
+        // (via `DisasterSystem.shared(...).bind(disasterStore:)`).
+        DisasterShakeTargetComponent.registerComponent()
+        DisasterFloodWaterComponent.registerComponent()
+        DisasterSystem.registerSystem()
+        // Phase 8.1: player-side camera jitter. Reads
+        // `DisasterSystem.boundStore` directly so no `@State` on
+        // RootView or separate binding slot is needed. Registered
+        // after DisasterSystem so the System update order is stable.
+        DisasterCameraShakeSystem.registerSystem()
+        // Phase 2 Beta vehicle ECS. MUST be registered so the
+        // per-frame `update(context:)` runs — without it, `.pilot`
+        // intents write to `VehicleComponent` but nothing applies
+        // the axis / vertical to the entity transform. The drone
+        // appeared to "not fly" for the entire session because only
+        // the tests ever called these two `registerSystem()` lines.
+        VehicleComponent.registerComponent()
+        VehicleControlSystem.registerSystem()
+        // Phase 7.1: drone follow-cam ease. Component marks the
+        // occupied vehicle's entity; the System eases the child
+        // camera's local translation toward the component's target.
+        VehicleFollowCamComponent.registerComponent()
+        VehicleFollowCamSystem.registerSystem()
+        // Phase 9 Part F: scene transition markers.
+        LocationComponent.registerComponent()
+        LocationTransitionComponent.registerComponent()
         systemsRegistered = true
     }
 

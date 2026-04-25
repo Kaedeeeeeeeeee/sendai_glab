@@ -58,11 +58,22 @@ public final class PlayerControlSystem: System {
     ///   - Phase 4 iter 3: 8.0 → 800.0 (100×, too fast on device)
     ///   - Phase 4 iter 4: 800.0 → 80.0 (10× — fast enough to sweep
     ///     the corridor, slow enough to actually see buildings)
-    public static let moveSpeed: Float = 80.0
+    ///
+    ///   - Phase 9 Part G: 80.0 → 20.0 (device playtest — 80 m/s
+    ///     was close to sprint for a 1 km tile; 20 m/s reads as a
+    ///     brisk jog and lets the player actually look at buildings)
+    public static let moveSpeed: Float = 20.0
 
     /// Maximum absolute pitch, radians. ±80° ≈ ±1.396 rad. Keeps the
     /// camera from flipping past vertical.
     public static let pitchLimit: Float = .pi / 180 * 80
+
+    /// Multiplier applied to `moveAxis` while `PlayerComponent.isStaggered`
+    /// is true. 0.3 = 70 % of forward momentum shed — the ground
+    /// stealing their balance reads as a stagger, but the player can
+    /// still shuffle around so they never feel soft-locked during a
+    /// quake. Tuned by playtest; see ADR-0010 Phase 8.1 addendum.
+    public static let staggeredMoveScale: Float = 0.3
 
     /// The query we run each frame. Built once at init time because
     /// the predicate never changes and the query value is cheap to
@@ -117,14 +128,156 @@ public final class PlayerControlSystem: System {
             matching: query,
             updatingSystemWhen: .rendering
         ) {
+            // Phase 9 Part G: capture the pre-input position so we
+            // can clamp back against walls after `applyInput` moves
+            // the entity. `applyInput` still does all the integration
+            // (yaw / pitch / input scale) — the only thing we touch
+            // after is the XZ translation, if a wall is in the way.
+            let preInputPosition = entity.position
             applyInput(to: entity, deltaTime: deltaTime)
+            clampAgainstWalls(
+                player: entity,
+                from: preInputPosition,
+                scene: context.scene
+            )
             if let terrain = terrainEntity {
                 snapToGround(player: entity, terrain: terrain)
             }
         }
     }
 
+    // MARK: - Wall collision (Phase 9 Part G)
+
+    /// Player capsule radius (metres). Used by the wall raycast so a
+    /// hit at `d` leaves the player standing `wallRadius` from the
+    /// wall surface — otherwise the camera parents right into the
+    /// wall mesh and the character clips visibly on iPad.
+    internal static let wallRadius: Float = 0.35
+
+    /// Eye height used as the raycast origin. Most PLATEAU buildings
+    /// have windows below 2 m and solid walls above; sampling at
+    /// 1.0 m catches waist-high walls AND the typical first-floor
+    /// facade without slipping under a roof overhang.
+    private static let wallRayOriginY: Float = 1.0
+
+    /// Raycast from the player's previous XZ to their new XZ. If a
+    /// CollisionComponent-bearing entity is in the way, clamp the
+    /// translation so the player stops `wallRadius` short of the
+    /// hit. Y is left to `snapToGround` — we only care about XZ
+    /// blocking for walls.
+    ///
+    /// The raycast deliberately runs horizontally (ignores Y delta)
+    /// because the terrain is its own pass and staircases / slopes
+    /// are DEM-sampled elsewhere. A 3D raycast would also trigger on
+    /// the ground mesh when walking downhill, producing false blocks.
+    private func clampAgainstWalls(
+        player: Entity,
+        from oldPosition: SIMD3<Float>,
+        scene: RealityKit.Scene
+    ) {
+        let newPosition = player.position
+        let deltaXZ = SIMD3<Float>(
+            newPosition.x - oldPosition.x,
+            0,
+            newPosition.z - oldPosition.z
+        )
+        let distance = simd_length(deltaXZ)
+        // Skip no-op frames; SIMD3's length of a near-zero vector
+        // can flicker with float jitter, hence the 1 mm floor.
+        guard distance > 1e-3 else { return }
+
+        let direction = deltaXZ / distance
+        // Ray origin lifted by wallRayOriginY so low fences don't
+        // snag the ray before the wall behind them does. Player-
+        // local translation, not world-relative — player's world
+        // position is `oldPosition` + this at the start of the ray.
+        let origin = SIMD3<Float>(
+            oldPosition.x,
+            oldPosition.y + Self.wallRayOriginY,
+            oldPosition.z
+        )
+        // Ray length = move distance + wall radius so a hit within
+        // the player's capsule volume still registers.
+        let rayLength = distance + Self.wallRadius
+
+        // `query: .all` + manual filtering beats `query: .nearest`
+        // here because the nearest hit is almost always the terrain
+        // slope ahead of the player (Phase 4 TerrainLoader installs
+        // collision on the DEM mesh). Walking on Aobayama's 150 m
+        // hillside makes that hit trigger at ~0 m every frame and
+        // freezes the player in place. Filter it — and outcrop /
+        // sample hits too — before picking a "real wall" hit.
+        let hits = scene.raycast(
+            origin: origin,
+            direction: direction,
+            length: rayLength,
+            query: .all
+        )
+        let wallHit = hits.first(where: { hit in
+            // Skip terrain: entities carrying `TerrainComponent` OR
+            // any ancestor that does. The DEM mesh itself is the
+            // one tagged in Phase 4.
+            if Self.isTerrainHit(hit.entity) { return false }
+            // Skip anything inside the sample container (spawned
+            // sample cores live ~0.8 m from the player and would
+            // otherwise wall-block their own source).
+            if Self.isSampleContainerHit(hit.entity) { return false }
+            return true
+        })
+        guard let hit = wallHit else { return }
+        let safeDistance = max(0, hit.distance - Self.wallRadius)
+        player.position = SIMD3<Float>(
+            oldPosition.x + direction.x * safeDistance,
+            newPosition.y,
+            oldPosition.z + direction.z * safeDistance
+        )
+    }
+
+    /// `true` if `entity` or any ancestor carries `TerrainComponent`.
+    /// Walks up the parent chain because `generateCollisionShapes(
+    /// recursive: true)` in TerrainLoader may attach a shape to a
+    /// child mesh entity even though the root holds the marker.
+    private static func isTerrainHit(_ entity: Entity) -> Bool {
+        var current: Entity? = entity
+        while let e = current {
+            if e.components[TerrainComponent.self] != nil { return true }
+            current = e.parent
+        }
+        return false
+    }
+
+    /// `true` if `entity` lives under the SampleContainer entity.
+    /// Sample cores are spawned ~80 cm from the player, so they'd
+    /// otherwise wall-block the player's own harvest.
+    private static func isSampleContainerHit(_ entity: Entity) -> Bool {
+        var current: Entity? = entity
+        while let e = current {
+            if e.name == "SampleContainer" { return true }
+            current = e.parent
+        }
+        return false
+    }
+
+    /// Indoor floor Y in lab-local coordinates. Phase 9 Part F pins
+    /// the lab floor at world Y = 0 (the lab root lives at world Y = 0
+    /// when enabled, see `RootView`'s `isEnabled`-swap integration),
+    /// so the player's feet sit at Y = 0 plus the same 10 cm margin
+    /// we use outdoors. Exposed `internal` so tests can reference the
+    /// value without duplicating the constant.
+    internal static let indoorFloorY: Float = 0.0
+
     /// Ground-follow the player by sampling the terrain mesh directly.
+    ///
+    /// ### Phase 9 Part F — indoor branch
+    ///
+    /// The player may carry a `LocationComponent(.indoor(_))` when
+    /// they are inside the procedural lab (see `InteriorSceneBuilder`).
+    /// Indoor sampling short-circuits the terrain lookup and pins the
+    /// player's feet to `indoorFloorY` + the standard 10 cm margin.
+    /// The DEM is usually a long way below (or way above) the lab
+    /// origin and would fling the player out of the room if we kept
+    /// snapping to it. Skipping the sampler is cheaper than trying to
+    /// build an "indoor DEM" for one box room.
     ///
     /// ### Why not `Scene.raycast`
     ///
@@ -144,6 +297,19 @@ public final class PlayerControlSystem: System {
     /// ever need tighter perf, a BVH over the DEM verts would drop
     /// this to O(log n); not worth the complexity at Phase 4.
     private func snapToGround(player: Entity, terrain: Entity) {
+        // Phase 9 Part F: indoor short-circuit. An entity carrying
+        // `LocationComponent(.indoor(_))` sits on a fixed floor, not
+        // on the DEM. Outdoor is the implicit default if the
+        // component is missing so tests and legacy setups keep the
+        // pre-Phase-9 behaviour.
+        if let location = player.components[LocationComponent.self],
+           case .indoor = location.kind {
+            var newPos = player.position
+            newPos.y = Self.indoorFloorY + 0.1
+            player.position = newPos
+            return
+        }
+
         // `sampleTerrainY` is `@MainActor` because it reads RealityKit
         // entity transforms + ModelComponent. RealityKit drives
         // System.update on MainActor in practice, but the Swift 6
@@ -229,7 +395,18 @@ public final class PlayerControlSystem: System {
         // `axis.x` strafe = entity's local `+X`. Convert to world by
         // transforming the direction through the entity's current
         // orientation.
-        let axis = input.moveAxis
+        //
+        // Phase 8.1: when the player's identity tag is flagged
+        // `isStaggered` (the earthquake is shaking), scale the axis
+        // by `staggeredMoveScale` so input feels sluggish. We read
+        // the flag *here* rather than gating on `input.moveAxis`
+        // earlier so the stagger only affects translation — yaw /
+        // pitch still respond normally, which preserves look control
+        // while balance is off.
+        let isStaggered = entity.components[PlayerComponent.self]?
+            .isStaggered ?? false
+        let scale: Float = isStaggered ? Self.staggeredMoveScale : 1
+        let axis = input.moveAxis * scale
         if axis != .zero {
             let localDir = SIMD3<Float>(axis.x, 0, -axis.y)
             let worldDir = entity.orientation.act(localDir)

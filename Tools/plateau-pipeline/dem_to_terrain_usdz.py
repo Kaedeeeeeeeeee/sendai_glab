@@ -9,9 +9,21 @@ grind the GPU even on an M5 iPad. We need:
 
   1. Geometry decimation — collapse to ~30–60 k triangles so the
      mesh loads fast and renders cheap.
-  2. Material strip — DEM has no meaningful texture; we apply a flat
-     toon-friendly material at runtime in RealityKit.
-  3. USDZ export — RealityKit's supported interchange format.
+  2. Planar UV projection — PLATEAU ships the DEM without UVs; we
+     generate them ourselves from the post-decimation vertex bbox so
+     an external orthophoto can be draped on top.
+  3. Orthophoto material — pack the GSI seamlessphoto mosaic
+     produced by `download_gsi_ortho.sh` into a Principled BSDF with
+     `Base Color = image`. RealityKit's hybrid tint mutator sees a
+     textured `PhysicallyBasedMaterial` at runtime and preserves it.
+  4. USDZ export — RealityKit's supported interchange format.
+
+Phase 11 Part E flipped the Phase 3 behaviour that stripped materials
++ UVs wholesale. The Phase 3 rationale was "DEM has no meaningful
+texture so we apply a flat toon runtime material". Part E introduces a
+real orthophoto, so keeping the pipeline-authored material and UVs is
+correct, and the runtime now uses a hybrid mutator that preserves the
+texture (ToonMaterialFactory.mutateIntoTexturedCel).
 
 Why not reuse `glb_to_usdz.py`?
 -------------------------------
@@ -27,11 +39,16 @@ Usage
       -- \
       --input  /tmp/dem_ReliefFeature.glb \
       --output Resources/Environment/Terrain_Sendai_574036_05.usdz \
+      --ortho  intermediate/gsi_ortho/sendai_574036_05.jpg \
       --target-triangles 50000
 
 `--target-triangles` is an approximate budget. Blender's DECIMATE
 modifier operates on a ratio, so the script computes the ratio to
 hit the target, clamped to [0.001, 1.0].
+
+`--ortho` is optional: when omitted the exporter falls back to the
+Phase 3 untextured behaviour (used by tests / CI that don't have the
+GSI mosaic on disk). Production pipeline always passes it.
 """
 from __future__ import annotations
 
@@ -61,6 +78,17 @@ def parse_post_dashdash_args() -> argparse.Namespace:
         type=int,
         default=50000,
         help="Approximate triangle budget after decimation (default 50000)."
+    )
+    parser.add_argument(
+        "--ortho",
+        default=None,
+        help=(
+            "Optional path to a stitched orthophoto JPG (from "
+            "download_gsi_ortho.sh). When provided, the terrain is "
+            "exported with planar UVs + a Principled BSDF sourcing "
+            "Base Color from the image. When omitted, the legacy "
+            "untextured Phase 3 export is produced."
+        ),
     )
     return parser.parse_args(script_args)
 
@@ -195,9 +223,137 @@ def decimate_to_target(
     return (before, after, ratio)
 
 
-def export_usdz(output: Path) -> None:
-    """Export the current scene as USDZ with the same flags as the
-    building pipeline so RealityKit sees identical scene graphs.
+def generate_planar_uvs(obj: bpy.types.Object) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Create a planar UV layer by normalising vertex positions
+    against the mesh's horizontal (XY) bounding box.
+
+    Why a *manual* UV layer and not `bpy.ops.uv.smart_project`
+    ----------------------------------------------------------
+    The DEM is a heightfield — one vertex per horizontal cell, no
+    seams, no disconnected shells. Smart-project's angle-limit splits
+    slope triangles into separate islands, which scatters the
+    orthophoto across the UV space non-monotonically and produces a
+    deeply confusing ground at runtime. A direct `uv = normalize(xy)`
+    preserves the spatial relationship ("pixel at (u,v) in the
+    orthophoto corresponds to world (x,z) by a fixed affine"), which
+    is exactly what aligned aerial imagery needs.
+
+    Axis convention
+    ---------------
+    After glTF-import of nusamai output, Blender axes are:
+      - X east (matches EPSG:6677 Y, nusamai already flipped it into
+        Blender-X at import time)
+      - Y north (matches EPSG:6677 X after nusamai's swap)
+      - Z up
+    The stitched orthophoto (from download_gsi_ortho.sh) has north at
+    pixel-y = 0 (top of image). UV convention: V=0 is the bottom of
+    the image in Blender's convention — so to map "Blender-north =
+    Blender-+Y = image-top = UV-v=1", we need `v = (y - min_y) /
+    (max_y - min_y)`.
+
+    The UV.u direction is straightforward: u = (x - min_x) / span_x.
+
+    This gives us an orientation that **should** look correct first
+    try. The user can spot-check on real hardware; flipping u or v is
+    a one-line change if orientation is wrong.
+
+    Returns the (min, max) XY bbox so the caller can log it or sanity-
+    check ordering.
+    """
+    mesh = obj.data
+    if not mesh.vertices:
+        return ((0.0, 0.0), (0.0, 0.0))
+
+    xs = [v.co.x for v in mesh.vertices]
+    ys = [v.co.y for v in mesh.vertices]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
+
+    # Remove any existing UV layers so we emit exactly one.
+    while mesh.uv_layers:
+        mesh.uv_layers.remove(mesh.uv_layers[0])
+    uv_layer = mesh.uv_layers.new(name="TerrainOrthoUV")
+
+    # `uv_layer.data` is one entry per loop (per face-corner). Each
+    # loop references a vertex via `mesh.loops[i].vertex_index`.
+    for loop_index, loop in enumerate(mesh.loops):
+        v = mesh.vertices[loop.vertex_index]
+        u = (v.co.x - min_x) / span_x
+        w = (v.co.y - min_y) / span_y
+        uv_layer.data[loop_index].uv = (u, w)
+
+    mesh.update()
+    return ((min_x, min_y), (max_x, max_y))
+
+
+def attach_ortho_material(obj: bpy.types.Object, ortho_path: Path) -> None:
+    """Replace the mesh's material slots with a single Principled BSDF
+    whose Base Color samples the stitched orthophoto image.
+
+    Roughness is pinned to 1.0 and Specular IOR Level to 0.0 so the
+    PhysicallyBasedMaterial that lands in RealityKit is already in the
+    "painted-matte" state the runtime Toon mutator wants. Clearing the
+    residual specular here means the runtime mutator has less to
+    override, and the rare case where the user ships a new USDZ
+    without running the runtime path (e.g. a Reality Composer preview)
+    still gets a flat painted look.
+    """
+    if not ortho_path.is_file():
+        raise FileNotFoundError(f"Orthophoto not found: {ortho_path}")
+
+    # Drop any existing materials — the DEM comes in with a stub
+    # material slot from nusamai that has no texture and no reason to
+    # survive.
+    while obj.data.materials:
+        obj.data.materials.pop(index=0)
+
+    mat = bpy.data.materials.new(name="TerrainOrthoMaterial")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    for n in list(nodes):
+        nodes.remove(n)
+
+    output = nodes.new(type="ShaderNodeOutputMaterial")
+    output.location = (300, 0)
+    bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
+    bsdf.location = (0, 0)
+    tex = nodes.new(type="ShaderNodeTexImage")
+    tex.location = (-320, 0)
+
+    image = bpy.data.images.load(str(ortho_path), check_existing=True)
+    # Pack the JPG bytes into the blend so wm.usd_export's
+    # export_textures path finds the image without needing the
+    # external file to exist at export time.
+    image.pack()
+    tex.image = image
+    # Colour data (default); no interpolation tweak — sRGB is the
+    # correct colour space for photographic orthophotos.
+
+    links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+
+    # Painted-matte tuning. Blender 4.x renamed "Specular" → "Specular
+    # IOR Level"; guard both spellings so this works across supported
+    # Blender versions.
+    bsdf.inputs["Roughness"].default_value = 1.0
+    bsdf.inputs["Metallic"].default_value = 0.0
+    for spec_name in ("Specular IOR Level", "Specular"):
+        if spec_name in bsdf.inputs:
+            bsdf.inputs[spec_name].default_value = 0.0
+            break
+
+    obj.data.materials.append(mat)
+
+
+def export_usdz(output: Path, *, textured: bool) -> None:
+    """Export the current scene as USDZ.
+
+    `textured=True` (Phase 11 Part E) flips materials + UVs on so the
+    embedded orthophoto rides along; `textured=False` keeps the legacy
+    Phase 3 behaviour where the runtime applies a flat cel material.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     export_kwargs = {
@@ -205,21 +361,31 @@ def export_usdz(output: Path) -> None:
         "selected_objects_only": False,
         "export_animation": False,
         "export_hair": False,
-        "export_uvmaps": False,   # DEM has no UVs worth keeping.
+        "export_uvmaps": textured,
         "export_normals": True,   # Lit shading benefits from normals.
-        "export_materials": False,  # See strip_materials() rationale.
+        "export_materials": textured,
         "use_instancing": False,
         "evaluation_mode": "RENDER",
     }
     op = bpy.ops.wm.usd_export
     if hasattr(op, "get_rna_type") and "root_prim_path" in op.get_rna_type().properties.keys():
         export_kwargs["root_prim_path"] = "/root"
+    # Only ask for textures to be embedded when we actually have a
+    # material worth exporting — keeps the "untextured" fallback USDZ
+    # bit-identical to Phase 3.
+    if textured and "export_textures" in op.get_rna_type().properties.keys():
+        export_kwargs["export_textures"] = True
     result = bpy.ops.wm.usd_export(**export_kwargs)
     if "FINISHED" not in result:
         raise RuntimeError(f"USD export returned non-finished status: {result}")
 
 
-def convert(input_glb: Path, output_usdz: Path, target_triangles: int) -> None:
+def convert(
+    input_glb: Path,
+    output_usdz: Path,
+    target_triangles: int,
+    ortho_path: Path | None,
+) -> None:
     if not input_glb.is_file():
         raise FileNotFoundError(f"Input GLB not found: {input_glb}")
 
@@ -230,7 +396,10 @@ def convert(input_glb: Path, output_usdz: Path, target_triangles: int) -> None:
     if joined is None:
         raise RuntimeError("Imported GLB produced no mesh objects")
 
-    strip_materials(joined)
+    # Phase 11 Part E: only strip materials when we're not about to
+    # author a new textured one. Avoids a pointless strip + rebuild.
+    if ortho_path is None:
+        strip_materials(joined)
 
     # Weld coincident verts BEFORE decimating — see the function's
     # docstring for the why (nusamai triangle-soup defeats DECIMATE).
@@ -238,25 +407,39 @@ def convert(input_glb: Path, output_usdz: Path, target_triangles: int) -> None:
 
     before, after, ratio = decimate_to_target(joined, target_triangles)
 
-    export_usdz(output_usdz)
+    uv_bbox: tuple[tuple[float, float], tuple[float, float]] | None = None
+    if ortho_path is not None:
+        uv_bbox = generate_planar_uvs(joined)
+        attach_ortho_material(joined, ortho_path)
+
+    export_usdz(output_usdz, textured=ortho_path is not None)
 
     size_kb = output_usdz.stat().st_size / 1024
+    ortho_note = ""
+    if uv_bbox is not None:
+        (min_x, min_y), (max_x, max_y) = uv_bbox
+        ortho_note = (
+            f"  uv-bbox x={max_x - min_x:,.1f}m y={max_y - min_y:,.1f}m "
+            f"ortho={ortho_path.name}"
+        )
     print(
         f"[OK] {input_glb.name} -> {output_usdz.name}  "
         f"verts {weld_before:,} -> welded {weld_after:,}  "
         f"tris {before:,} -> {after:,} "
         f"(ratio {ratio:.4f})  "
-        f"{size_kb:,.0f} KB"
+        f"{size_kb:,.0f} KB{ortho_note}"
     )
 
 
 def main() -> int:
     args = parse_post_dashdash_args()
     try:
+        ortho_path = Path(args.ortho) if args.ortho else None
         convert(
             Path(args.input),
             Path(args.output),
             int(args.target_triangles),
+            ortho_path,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[FAIL] DEM conversion failed: {exc}", file=sys.stderr)

@@ -27,7 +27,7 @@
 
 | ディレクトリ | パターン | 違反時 |
 |---|---|---|
-| `Resources/Environment/*.usdz` | `Environment_{Area}_{Tile}.usdz` | FAIL |
+| `Resources/Environment/*.usdz` | `Environment_{Area}_{Tile}.usdz` or `Terrain_{Area}_{TileId}.usdz` | FAIL |
 | `Resources/Characters/*.usdz` | `Character_{Role}_{Variant}.usdz` | FAIL |
 | `Resources/Props/*.usdz` | `Prop_{Name}.usdz` | FAIL |
 | `Resources/UI/**/*.png` | `UI_{Category}_{Name}.png` | FAIL |

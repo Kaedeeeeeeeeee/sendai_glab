@@ -1,0 +1,55 @@
+{
+    "scene": "第一幕 1.3 章：青葉山で採集する",
+    "background": "aobayama_outdoor",
+    "bgm": "field_day",
+    "dialogues": [
+        {
+            "speaker": "narration",
+            "text": "青葉山キャンパスの露頭。風が木々を揺らし、遠くに仙台の街並みが見える。",
+            "speakerKey": "story.speaker.narration",
+            "textKey": "story.quest1_3.line01"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "ここが青葉山の露頭ね。上から大年寺層、向山層、そして竜の口層が重なってる。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_3.line02"
+        },
+        {
+            "speaker": "主人公",
+            "text": "全部で何メートルあるんですか？",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_3.line03"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "基盤まで約 60 メートル。君のドリルなら 10 メートル届くから、上部層を採るのがちょうどいいわ。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_3.line04"
+        },
+        {
+            "speaker": "みなと",
+            "text": "地層って、本当に色が違うんだね。",
+            "speakerKey": "story.speaker.minato",
+            "textKey": "story.quest1_3.line05"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "大年寺層の砂岩は黄色っぽい、向山層の泥岩は黒っぽい。色はその地層が堆積した環境を語ってくれる。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_3.line06"
+        },
+        {
+            "speaker": "Dr.Kaede",
+            "text": "じゃあ、青葉山のどこでもいいから掘ってみて。サンプルを一つ持ち帰るの。",
+            "speakerKey": "story.speaker.drkaede",
+            "textKey": "story.quest1_3.line07"
+        },
+        {
+            "speaker": "主人公",
+            "text": "了解です。……行きます！",
+            "speakerKey": "story.speaker.protagonist",
+            "textKey": "story.quest1_3.line08"
+        }
+    ]
+}
