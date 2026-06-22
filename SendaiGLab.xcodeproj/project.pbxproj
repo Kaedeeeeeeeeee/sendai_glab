@@ -13,8 +13,10 @@
 		10FC540E82B51BE63A50131E /* quest1.1.json in Resources */ = {isa = PBXBuildFile; fileRef = 72C6241A56F5D88A94E4A580 /* quest1.1.json */; };
 		210F564EB19CC8FC2F109B91 /* SDGUI in Frameworks */ = {isa = PBXBuildFile; productRef = B10C1CEC652506FB6A2A274A /* SDGUI */; };
 		223210821C709E682F2842B1 /* Feedback_Success.m4a in Resources */ = {isa = PBXBuildFile; fileRef = A4E53C6AEDBDB842F970D0D1 /* Feedback_Success.m4a */; };
+		2338A93141BA6C060F264717 /* Earthquake_Rumble.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 4D72DD9CE0F223A6DEEED341 /* Earthquake_Rumble.m4a */; };
 		250D4A4C4F03E93C6EE26BC5 /* quest4.4.json in Resources */ = {isa = PBXBuildFile; fileRef = 8B71EDC43A63EF5504A8E0E5 /* quest4.4.json */; };
 		2AE2BCD11548D82AF22F05EE /* test_outcrop.json in Resources */ = {isa = PBXBuildFile; fileRef = 3390B9CD745D97E73FDA1830 /* test_outcrop.json */; };
+		2F029DE6052CF80F98DD01AE /* SupabaseConfig.plist.example in Resources */ = {isa = PBXBuildFile; fileRef = E4D8715BF17633663802E322 /* SupabaseConfig.plist.example */; };
 		3785C88F163A60111210F00C /* quest3.3.json in Resources */ = {isa = PBXBuildFile; fileRef = 31FB820BBDC01621FF01B22F /* quest3.3.json */; };
 		387C4B0964DC762ACD2A17C1 /* quest5.2.json in Resources */ = {isa = PBXBuildFile; fileRef = E02A0D5CED6B12495C6BB963 /* quest5.2.json */; };
 		3B662349F040996DEF82197F /* Footstep_Grass_02.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 0DDBDBD92ACC78B7C85A30FD /* Footstep_Grass_02.m4a */; };
@@ -23,6 +25,7 @@
 		3E5C782462B12E605935F4DB /* Feedback_Notify.m4a in Resources */ = {isa = PBXBuildFile; fileRef = C4E0D8CEF0F48C28090E9BC0 /* Feedback_Notify.m4a */; };
 		3F743426791D7006F12CD8A8 /* plateau_envelopes.json in Resources */ = {isa = PBXBuildFile; fileRef = EB4B69FF836D368FA2C1343B /* plateau_envelopes.json */; };
 		4741F33A9BC4D9CA2F1EB939 /* Footstep_Concrete_01.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 80AA544620317771F9A1EC52 /* Footstep_Concrete_01.m4a */; };
+		4E3A3EF5D5707A990B96A9B4 /* StepRampToon.usda in Resources */ = {isa = PBXBuildFile; fileRef = 99A2AC826F90E9A582734C27 /* StepRampToon.usda */; };
 		52DE50367B8F9BF1542CF39E /* SDGPlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 26DEE95F3289A53AC291AE69 /* SDGPlatform */; };
 		540DDB64E0056D9F522EDF0F /* Feedback_Chime.m4a in Resources */ = {isa = PBXBuildFile; fileRef = C4CF95C416CE0D4B7031CBC9 /* Feedback_Chime.m4a */; };
 		55ED3669A9819E3A533D31C3 /* Character_Player_Male.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 17CE82E0BEA3B9A5F70CD1FB /* Character_Player_Male.usdz */; };
@@ -57,6 +60,7 @@
 		BD8CA558B00226E0964ACCF6 /* Character_Kaede.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 80AE94C5C9B31EC53A76E503 /* Character_Kaede.usdz */; };
 		C0F964BD39243BF5A8FABBD8 /* kawauchi.json in Resources */ = {isa = PBXBuildFile; fileRef = 571DCD1EEF731F88B3190B6A /* kawauchi.json */; };
 		C6333C8E720A934480D3B15B /* quest4.3.json in Resources */ = {isa = PBXBuildFile; fileRef = C6421128B83CF093D2E6248E /* quest4.3.json */; };
+		C8598B134CABDBE615400C3B /* SupabaseConfig.plist in Resources */ = {isa = PBXBuildFile; fileRef = EB003ECFD1AC084BC74A0E8B /* SupabaseConfig.plist */; };
 		C89F3D017DBD84B5DEB464F0 /* Environment_Sendai_57403619.usdz in Resources */ = {isa = PBXBuildFile; fileRef = BC44983C01DA4BCC2F43AAA6 /* Environment_Sendai_57403619.usdz */; };
 		CA9BC817A92881EBD96DB7C5 /* quest1.4.json in Resources */ = {isa = PBXBuildFile; fileRef = 6208C2C2D761C072AE892D8D /* quest1.4.json */; };
 		CD9441844CAF776C54A7B5A9 /* quest4.1.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A711DA49E85E14532802171 /* quest4.1.json */; };
@@ -71,6 +75,7 @@
 		F2E9DCF251FD73E77827664D /* Drill_Impact_02.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 35F0A6D1D04A690E39266574 /* Drill_Impact_02.m4a */; };
 		F2EF95FE30029B6EC9D6D1B9 /* quest3.2.json in Resources */ = {isa = PBXBuildFile; fileRef = ADC81C83A1C4AEE3175722E8 /* quest3.2.json */; };
 		F403E35F26DA747625116E91 /* Footstep_Wood_01.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 31266953DD7B04E4FDEFAC52 /* Footstep_Wood_01.m4a */; };
+		F70AB4FF9B86FED470A7B8C3 /* Flood_Water.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 1EBD820C29391326A51602E6 /* Flood_Water.m4a */; };
 		FC21BC847E9537DCB0FF99B7 /* Feedback_Failure.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 006F88F90188A939A3CB7CD0 /* Feedback_Failure.m4a */; };
 		FFC42E8C6CC120E4815395CF /* Character_Player_Female.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 99EF933E109C812FADAFBB8A /* Character_Player_Female.usdz */; };
 /* End PBXBuildFile section */
@@ -86,6 +91,7 @@
 		12FA317EACC3ECD1C4F5D1FD /* UI_Close.m4a */ = {isa = PBXFileReference; path = UI_Close.m4a; sourceTree = "<group>"; };
 		17CE82E0BEA3B9A5F70CD1FB /* Character_Player_Male.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Character_Player_Male.usdz; sourceTree = "<group>"; };
 		1A3AD22026AC2B0BF0D748B8 /* thin_section_index.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = thin_section_index.json; sourceTree = "<group>"; };
+		1EBD820C29391326A51602E6 /* Flood_Water.m4a */ = {isa = PBXFileReference; path = Flood_Water.m4a; sourceTree = "<group>"; };
 		251BDC17B567DF595E5C66BE /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		2EDB22760868C5AFF2A9BAFA /* Environment_Sendai_57403617.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Environment_Sendai_57403617.usdz; sourceTree = "<group>"; };
 		31266953DD7B04E4FDEFAC52 /* Footstep_Wood_01.m4a */ = {isa = PBXFileReference; path = Footstep_Wood_01.m4a; sourceTree = "<group>"; };
@@ -99,6 +105,7 @@
 		41234A757A6A535C11DD800A /* SendaiGLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendaiGLabApp.swift; sourceTree = "<group>"; };
 		44A5A1F726F900CD04DA0F77 /* quest3.1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest3.1.json; sourceTree = "<group>"; };
 		4C1352849943FF91A9EAC417 /* Environment_Sendai_57403608.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Environment_Sendai_57403608.usdz; sourceTree = "<group>"; };
+		4D72DD9CE0F223A6DEEED341 /* Earthquake_Rumble.m4a */ = {isa = PBXFileReference; path = Earthquake_Rumble.m4a; sourceTree = "<group>"; };
 		52AAECA8BA8AB48ECD87F0ED /* Footstep_Grass_01.m4a */ = {isa = PBXFileReference; path = Footstep_Grass_01.m4a; sourceTree = "<group>"; };
 		5399CE9B1C20002EA549B2DC /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		5563C4CE1C0F144D04AB518C /* Terrain_Sendai_574036_05.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Terrain_Sendai_574036_05.usdz; sourceTree = "<group>"; };
@@ -119,6 +126,7 @@
 		8694CF5E24F321065A468DCB /* quest2.1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest2.1.json; sourceTree = "<group>"; };
 		8B71EDC43A63EF5504A8E0E5 /* quest4.4.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest4.4.json; sourceTree = "<group>"; };
 		8F42CB691D223AE00736EADA /* Drill_Impact_01.m4a */ = {isa = PBXFileReference; path = Drill_Impact_01.m4a; sourceTree = "<group>"; };
+		99A2AC826F90E9A582734C27 /* StepRampToon.usda */ = {isa = PBXFileReference; path = StepRampToon.usda; sourceTree = "<group>"; };
 		99EF933E109C812FADAFBB8A /* Character_Player_Female.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Character_Player_Female.usdz; sourceTree = "<group>"; };
 		9C889609AF12318D3CD91D52 /* Character_ResearcherA.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Character_ResearcherA.usdz; sourceTree = "<group>"; };
 		9F9D3DAE9D560613A22B42DC /* UI_TapAlt.m4a */ = {isa = PBXFileReference; path = UI_TapAlt.m4a; sourceTree = "<group>"; };
@@ -138,12 +146,14 @@
 		D859A25E10C0ABACFD92FBA4 /* quest1.2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest1.2.json; sourceTree = "<group>"; };
 		DC78C97E4E02A9D3F86E38A1 /* Drill_Impact_04.m4a */ = {isa = PBXFileReference; path = Drill_Impact_04.m4a; sourceTree = "<group>"; };
 		E02A0D5CED6B12495C6BB963 /* quest5.2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = quest5.2.json; sourceTree = "<group>"; };
+		E4D8715BF17633663802E322 /* SupabaseConfig.plist.example */ = {isa = PBXFileReference; path = SupabaseConfig.plist.example; sourceTree = "<group>"; };
 		EA608863B3C400A9896D507E /* aobayama-campus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "aobayama-campus.json"; sourceTree = "<group>"; };
+		EB003ECFD1AC084BC74A0E8B /* SupabaseConfig.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = SupabaseConfig.plist; sourceTree = "<group>"; };
 		EB4B69FF836D368FA2C1343B /* plateau_envelopes.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = plateau_envelopes.json; sourceTree = "<group>"; };
 		EC91E144116FC0A33EB5D676 /* UI_Open.m4a */ = {isa = PBXFileReference; path = UI_Open.m4a; sourceTree = "<group>"; };
 		F44D2E0DFA8A57D80924E844 /* Environment_Sendai_57403618.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Environment_Sendai_57403618.usdz; sourceTree = "<group>"; };
 		FA0FDF6FAB87BB1B12B37139 /* Character_Teacher.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = Character_Teacher.usdz; sourceTree = "<group>"; };
-		"TEMP_629DF580-2025-4649-8834-6599AF7E106E" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
+		"TEMP_A38746E8-3157-4B1B-94C6-C344AB9A9BF0" /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -192,6 +202,15 @@
 				81A1F5770355A6E014EA5CD3 /* tohoku-gakuin.json */,
 			);
 			path = regions;
+			sourceTree = "<group>";
+		};
+		18A36FEBB114B37C48AF25A7 /* disaster */ = {
+			isa = PBXGroup;
+			children = (
+				4D72DD9CE0F223A6DEEED341 /* Earthquake_Rumble.m4a */,
+				1EBD820C29391326A51602E6 /* Flood_Water.m4a */,
+			);
+			path = disaster;
 			sourceTree = "<group>";
 		};
 		25B80FCFA0E89E5BA1A59B80 /* SendaiGLab */ = {
@@ -291,7 +310,9 @@
 				D49226E99B21C4FA8E53D1F5 /* Environment */,
 				0F9CB74952C2D4E9F1409BF8 /* Geology */,
 				C1D16576498BE1FD9974CDE4 /* Localization */,
+				805B45C856A53E535C3D2080 /* Shaders */,
 				408588FDBFCB9BD67AA0D8B8 /* Story */,
+				DAA88B7B602017D3C55EC243 /* Supabase */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -303,6 +324,14 @@
 				251BDC17B567DF595E5C66BE /* README.md */,
 			);
 			path = Audio;
+			sourceTree = "<group>";
+		};
+		805B45C856A53E535C3D2080 /* Shaders */ = {
+			isa = PBXGroup;
+			children = (
+				99A2AC826F90E9A582734C27 /* StepRampToon.usda */,
+			);
+			path = Shaders;
 			sourceTree = "<group>";
 		};
 		B4D329C318F3C02C2B23380A /* Packages */ = {
@@ -338,6 +367,15 @@
 			path = Environment;
 			sourceTree = "<group>";
 		};
+		DAA88B7B602017D3C55EC243 /* Supabase */ = {
+			isa = PBXGroup;
+			children = (
+				EB003ECFD1AC084BC74A0E8B /* SupabaseConfig.plist */,
+				E4D8715BF17633663802E322 /* SupabaseConfig.plist.example */,
+			);
+			path = Supabase;
+			sourceTree = "<group>";
+		};
 		E4DACCBCC9D22C96DA8DB5EB /* footstep */ = {
 			isa = PBXGroup;
 			children = (
@@ -354,6 +392,7 @@
 		E6242CD819DB951D53851715 /* SFX */ = {
 			isa = PBXGroup;
 			children = (
+				18A36FEBB114B37C48AF25A7 /* disaster */,
 				57F4DD5EFA93EF1EC82F74F1 /* drill */,
 				053A36DD9CDC7DDD501502EA /* feedback */,
 				E4DACCBCC9D22C96DA8DB5EB /* footstep */,
@@ -362,12 +401,12 @@
 			path = SFX;
 			sourceTree = "<group>";
 		};
-		"TEMP_40CC3908-4D1A-4DD5-A1B4-93475960CEDA" /* agent-a45bcd67 */ = {
+		"TEMP_334F09E5-EDC8-44C0-B10F-A4D9F04939F1" /* sendai_glab */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_629DF580-2025-4649-8834-6599AF7E106E" /* LocalSigning.xcconfig */,
+				"TEMP_A38746E8-3157-4B1B-94C6-C344AB9A9BF0" /* LocalSigning.xcconfig */,
 			);
-			path = "agent-a45bcd67";
+			path = sendai_glab;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -454,6 +493,7 @@
 				9A7E1B5DCC8D73B7D91F1C1D /* Drill_Impact_03.m4a in Resources */,
 				AAB6B2702332A598CC1DA95B /* Drill_Impact_04.m4a in Resources */,
 				D85EA31F113AE03AF0AA3AA6 /* Drill_Metal_Heavy.m4a in Resources */,
+				2338A93141BA6C060F264717 /* Earthquake_Rumble.m4a in Resources */,
 				EE238305E0BCD8BA351989DB /* Environment_Sendai_57403607.usdz in Resources */,
 				93032124B706821CE7A72907 /* Environment_Sendai_57403608.usdz in Resources */,
 				A0A7B31ECC15FA88F48827B7 /* Environment_Sendai_57403617.usdz in Resources */,
@@ -463,6 +503,7 @@
 				FC21BC847E9537DCB0FF99B7 /* Feedback_Failure.m4a in Resources */,
 				3E5C782462B12E605935F4DB /* Feedback_Notify.m4a in Resources */,
 				223210821C709E682F2842B1 /* Feedback_Success.m4a in Resources */,
+				F70AB4FF9B86FED470A7B8C3 /* Flood_Water.m4a in Resources */,
 				4741F33A9BC4D9CA2F1EB939 /* Footstep_Concrete_01.m4a in Resources */,
 				899ECDE4C6FA3DE8EDF66C79 /* Footstep_Concrete_02.m4a in Resources */,
 				B2C7A3BD48451E73454B604E /* Footstep_Grass_01.m4a in Resources */,
@@ -471,6 +512,9 @@
 				D43F7487D8832A74EDA27075 /* Footstep_Wood_02.m4a in Resources */,
 				7F18ADF68A6296BE43C84D36 /* Localizable.xcstrings in Resources */,
 				712DEE5923CA0DAFBDED555B /* README.md in Resources */,
+				4E3A3EF5D5707A990B96A9B4 /* StepRampToon.usda in Resources */,
+				C8598B134CABDBE615400C3B /* SupabaseConfig.plist in Resources */,
+				2F029DE6052CF80F98DD01AE /* SupabaseConfig.plist.example in Resources */,
 				DAB2FE8F777F9E3C4EC80CE6 /* Terrain_Sendai_574036_05.usdz in Resources */,
 				9F2252C766F8558C6812B20E /* UI_Close.m4a in Resources */,
 				8543E3EE190203FF9A22A799 /* UI_Hover.m4a in Resources */,
@@ -590,10 +634,11 @@
 		};
 		A18825CECF467420BB9E11DC /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_629DF580-2025-4649-8834-6599AF7E106E" /* LocalSigning.xcconfig */;
+			baseConfigurationReference = "TEMP_A38746E8-3157-4B1B-94C6-C344AB9A9BF0" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SendaiGLab.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "SDG-Lab";
@@ -678,10 +723,11 @@
 		};
 		FD7DEEC2B67B5D0A13C5A26E /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_629DF580-2025-4649-8834-6599AF7E106E" /* LocalSigning.xcconfig */;
+			baseConfigurationReference = "TEMP_A38746E8-3157-4B1B-94C6-C344AB9A9BF0" /* LocalSigning.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SendaiGLab.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "SDG-Lab";

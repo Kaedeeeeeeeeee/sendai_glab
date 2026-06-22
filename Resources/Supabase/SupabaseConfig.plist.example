@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Copy to SupabaseConfig.plist. The anon key is designed to be public
+    (Supabase protects data via Postgres Row Level Security), so committing
+    the real file is intentional — see ADR-0011.
+-->
+<plist version="1.0">
+<dict>
+    <key>SUPABASE_URL</key>
+    <string>https://YOUR-PROJECT-REF.supabase.co</string>
+    <key>SUPABASE_ANON_KEY</key>
+    <string>YOUR_ANON_KEY</string>
+</dict>
+</plist>

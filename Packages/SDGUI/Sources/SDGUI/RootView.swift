@@ -191,6 +191,17 @@ public struct RootView: View {
     /// the platform `AudioService`. Started in `bootstrap()`.
     @State private var disasterAudioBridge: DisasterAudioBridge?
 
+    /// Phase 10: bridges `AppSessionStarted` / `UserSignedIn` to
+    /// `TelemetryWriting.logSession`. Started in `bootstrap()` iff
+    /// an `AuthStore` is injected via `\.authStore` (production path;
+    /// previews render without it). See ADR-0011.
+    @State private var sessionLogBridge: SessionLogBridge?
+
+    /// Phase 10: the AuthStore handed in by `ContentView`. Read via
+    /// `@Environment` so `RootView` has no init-surface change. `nil`
+    /// in previews / unit tests — the bridge skips start in that case.
+    @Environment(\.authStore) private var injectedAuthStore: AuthStore?
+
     /// Phase 9 Part B: story-driven quest + disaster routing.
     /// Replaces the Phase 3 ad-hoc dialogue→quest subscription.
     @State private var storyProgressionBridge: StoryProgressionBridge?
@@ -207,6 +218,14 @@ public struct RootView: View {
 
     /// Phase 9 Part F: subscription token for SceneTransitionStarted.
     @State private var sceneTransitionStartedToken: SubscriptionToken?
+
+    /// Phase 9 Part G: accumulated camera pitch while piloting a
+    /// vehicle. The player's on-foot pitch lives in
+    /// `PlayerControlSystem.accumulatedPitch`, but that System skips
+    /// the player entity while piloting (isEnabled = false), so we
+    /// need an independent buffer for pilot-mode pitch. Clamped to
+    /// ±80° same as the on-foot version. Resets to 0 on exit.
+    @State private var pilotCameraPitch: Float = 0
 
     /// True while the workbench full-screen cover is presented.
     @State private var showWorkbench: Bool = false
@@ -236,10 +255,12 @@ public struct RootView: View {
         every: 0.1, on: .main, in: .common
     ).autoconnect()
 
-    /// Look sensitivity: screen-space points per radian. 1000 pt ≈ full
-    /// device width on iPad landscape; a 1000-pt drag rotating by one
-    /// radian (≈57°) feels right on first play.
-    private let lookSensitivity: Float = 1.0 / 1000.0
+    /// Look sensitivity: screen-space points per radian.
+    /// Phase 9 Part G: 1/1000 → 1/500 after device feedback — the
+    /// original rate felt sluggish. 1/500 means a full-device-width
+    /// drag rotates ~2.5 rad (≈115°), which matches the "flick to
+    /// look around" feel typical iOS camera controls use.
+    private let lookSensitivity: Float = 1.0 / 500.0
 
     /// Default public initializer. Allocates placeholder stores tied to
     /// an empty bus; `.task` re-binds them to the real env bus on first
@@ -591,8 +612,16 @@ public struct RootView: View {
             sceneRefs.sampleContainer = samples
 
             // 6. Phase 9 Part F — interior lab + outdoor portal pair.
+            // Outdoor exit lands the player 3 m NORTH of the portal
+            // (portal sits at z = -5; exit at z = -2). `SceneTransitionStore
+            // .triggerRadius` is 2 m, so 3 m leaves a 1 m buffer
+            // before the next proximity tick re-triggers the portal —
+            // otherwise the player pops out and is immediately sucked
+            // back in. The previous offset (-5 + 1.5 = -3.5) placed
+            // them 1.5 m from the portal, well inside the trigger
+            // radius, which manifested as "exit instantly re-enters".
             let lab = InteriorSceneBuilder.build(
-                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 1.5)
+                outdoorSpawnPoint: SIMD3<Float>(0, spawnY, -5 + 3.0)
             )
             lab.position = SIMD3<Float>(0, 0, 0)
             lab.isEnabled = false
@@ -711,11 +740,25 @@ public struct RootView: View {
             let player = sceneRefs.playerEntity,
             let lab = labInteriorEntity
         else { return }
+        // Phase 9 Part F+G: the lab lives at world origin so the
+        // existing `indoorFloorY = 0` short-circuit in
+        // `PlayerControlSystem.snapToGround` works without any
+        // lab-local↔world conversion. But the DEM terrain + PLATEAU
+        // corridor also live at world origin and visibly punch
+        // through the lab walls when both are rendered. So on
+        // transition we flip both outdoor scenes off (or back on)
+        // together with the lab. The outdoor portal frame stays
+        // visible inside the lab room but the player can't see it
+        // from inside — it's outside the 10 × 4 × 8 m box.
         switch event.to {
         case .outdoor:
             lab.isEnabled = false
+            sceneRefs.loadedTerrain?.isEnabled = true
+            sceneRefs.environmentRoot?.isEnabled = true
         case .indoor:
             lab.isEnabled = true
+            sceneRefs.loadedTerrain?.isEnabled = false
+            sceneRefs.environmentRoot?.isEnabled = false
         }
         player.position = event.spawnPoint
         player.components.set(LocationComponent(event.to))
@@ -843,7 +886,15 @@ public struct RootView: View {
             playerBody.addChild(camera)
             // Back to head height — matches CharacterLoader default.
             camera.transform.translation = SIMD3<Float>(0, 1.5, 0)
+            // Phase 9 Part G: reset the camera's pitch on exit so the
+            // drone's last look angle doesn't carry into the on-foot
+            // view. PlayerControlSystem owns its own pitch accumulator
+            // for on-foot control and will re-drive this.
+            camera.orientation = simd_quatf()
         }
+        // Phase 9 Part G: reset the pilot pitch buffer so a future
+        // board starts at a neutral (horizon-level) angle.
+        pilotCameraPitch = 0
         playerBody.isEnabled = true
         if let vehicleEntity = vehicleStore.entity(for: event.vehicleId) {
             // Phase 7.1: clean up the follow-cam marker so a future
@@ -993,6 +1044,18 @@ public struct RootView: View {
         )
         await dBridge.start()
         disasterAudioBridge = dBridge
+
+        // Phase 10 Supabase POC: session telemetry. Skipped when
+        // `authStore` isn't injected (previews / unit-test host).
+        if let authStore = injectedAuthStore {
+            let sBridge = SessionLogBridge(
+                eventBus: bus,
+                authStore: authStore,
+                telemetry: env.telemetry
+            )
+            await sBridge.start()
+            sessionLogBridge = sBridge
+        }
 
         // Safety net: also tag tiles here in case bootstrap finished
         // before the RealityView's async corridor load. The primary
@@ -1150,6 +1213,7 @@ public struct RootView: View {
         let bridge = audioBridge
         let dBridge = disasterAudioBridge
         let pBridge = storyProgressionBridge
+        let sBridge = sessionLogBridge
         let qs = questStore
         Task {
             await ds.stop()
@@ -1159,10 +1223,12 @@ public struct RootView: View {
             if let bridge { await bridge.stop() }
             if let dBridge { await dBridge.stop() }
             if let pBridge { await pBridge.stop() }
+            if let sBridge { await sBridge.stop() }
         }
         audioBridge = nil
         disasterAudioBridge = nil
         storyProgressionBridge = nil
+        sessionLogBridge = nil
         // Clear the Phase 8 System binding so a subsequent view
         // creation re-binds to the fresh store rather than the
         // stale one from the previous scene.
@@ -1174,7 +1240,25 @@ public struct RootView: View {
     // MARK: - Look gesture
 
     /// Right-half-screen `DragGesture`: translates raw point deltas
-    /// into radian look-intents and forwards them to the Store.
+    /// into radian look-intents.
+    ///
+    /// ## Routing
+    ///
+    /// - **On foot** (no occupied vehicle): forwards yaw + pitch to
+    ///   `playerStore.intent(.look)`. PlayerControlSystem rotates
+    ///   the player body on yaw and the head-height camera on pitch.
+    ///
+    /// - **Piloting** (Phase 9 Part G): PlayerControlSystem is gated
+    ///   out (player.isEnabled = false), so we mutate the drone and
+    ///   its reparented camera directly:
+    ///   * yaw rotates the vehicle entity around world +Y — the
+    ///     camera is a child so it follows, and the drone's "forward"
+    ///     vector (used by `VehicleControlSystem` for moveAxis) turns
+    ///     with it
+    ///   * pitch rotates the camera around local X — tracked in
+    ///     `pilotCameraPitch` so repeated drags compose cleanly, and
+    ///     clamped to the same ±80° as on-foot pitch so the camera
+    ///     can't flip past vertical
     private var lookGesture: some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
@@ -1188,12 +1272,35 @@ public struct RootView: View {
                 let yaw = Float(dx) * lookSensitivity
                 let pitch = Float(-dy) * lookSensitivity
 
-                let store = playerStore
                 let bus = env.eventBus
+                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
+
+                // Piloting a vehicle → yaw on drone, pitch on camera.
+                if let vehicleId = vehicleStore.occupiedVehicleId,
+                   let vehicle = vehicleStore.entity(for: vehicleId) {
+                    if yaw != 0 {
+                        let yawQuat = simd_quatf(
+                            angle: -yaw, axis: SIMD3<Float>(0, 1, 0)
+                        )
+                        vehicle.orientation = vehicle.orientation * yawQuat
+                    }
+                    if pitch != 0, let camera = findPerspectiveCamera(under: vehicle) {
+                        let pitchLimit: Float = .pi / 180 * 80
+                        pilotCameraPitch = simd_clamp(
+                            pilotCameraPitch + pitch, -pitchLimit, pitchLimit
+                        )
+                        camera.orientation = simd_quatf(
+                            angle: pilotCameraPitch, axis: SIMD3<Float>(1, 0, 0)
+                        )
+                    }
+                    return
+                }
+
+                // On foot → existing Store path.
+                let store = playerStore
                 Task { @MainActor in
                     await store.intent(.look(SIMD2(yaw, pitch)))
                 }
-                Task { await bus.publish(LookPanEvent(dx: Double(dx), dy: Double(dy))) }
             }
             .onEnded { _ in
                 lastLookTranslation = .zero
@@ -1221,6 +1328,14 @@ public struct RootView: View {
         // RootView or separate binding slot is needed. Registered
         // after DisasterSystem so the System update order is stable.
         DisasterCameraShakeSystem.registerSystem()
+        // Phase 2 Beta vehicle ECS. MUST be registered so the
+        // per-frame `update(context:)` runs — without it, `.pilot`
+        // intents write to `VehicleComponent` but nothing applies
+        // the axis / vertical to the entity transform. The drone
+        // appeared to "not fly" for the entire session because only
+        // the tests ever called these two `registerSystem()` lines.
+        VehicleComponent.registerComponent()
+        VehicleControlSystem.registerSystem()
         // Phase 7.1: drone follow-cam ease. Component marks the
         // occupied vehicle's entity; the System eases the child
         // camera's local translation toward the component's target.
