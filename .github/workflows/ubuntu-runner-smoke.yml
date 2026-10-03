@@ -1,0 +1,36 @@
+name: Ubuntu runner smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-runner:
+    runs-on: [self-hosted, linux, x64, ubuntu-zhang, ci-ubuntu-24]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify the runner and local storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = self-hosted
+          test ! -S /var/run/docker.sock
+          test -w /ci/cache
+          test -w /ci/artifacts
+          node --version
+          python3 --version
+          mkdir -p "$RUNNER_TEMP/local-artifact-smoke"
+          printf 'Local CI storage verified\n' > "$RUNNER_TEMP/local-artifact-smoke/result.txt"
+      - name: Save the smoke test artifact locally
+        shell: bash
+        env:
+          CI_ARTIFACT_NAME: ubuntu-storage-smoke
+          CI_ARTIFACT_PATHS: ${{ runner.temp }}/local-artifact-smoke/result.txt
+          CI_ARTIFACT_NO_FILES: error
+          CI_ARTIFACT_RETENTION: '7'
+        run: python3 /opt/ci/store_artifact.py
